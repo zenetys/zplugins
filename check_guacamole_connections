@@ -1,0 +1,120 @@
+#/bin/bash
+#
+# Copyright(C) 2020 ZENETYS
+# This script is licensed under MIT License (http://opensource.org/licenses/MIT)
+# License: License MIT
+# Initial author: Julien THOMAS < jthomas @ zenetys.com >
+#
+
+PROGNAME=${0##*/}
+EXTERNAL_COMMANDS=( curl jq )
+set -f
+
+TIMEOUT=5
+USERNAME=
+PASSWORD=
+BASEURL=
+WARNING=
+CRITICAL=
+VERBOSE=
+TOKEN=
+SOURCE=
+
+function curl() {
+    local cmd=( curl -sS --connect-timeout "$TIMEOUT" -f "$@" )
+    [[ -n $VERBOSE ]] && echo "## ${cmd[*]}" >&2
+    REPLY=$(command "${cmd[@]}" 2>&1)
+}
+
+function on_exit() {
+    if [[ -n $TOKEN ]]; then
+        curl -X DELETE "$BASEURL/api/tokens/$TOKEN"
+    fi
+}
+
+function exit_usage() {
+    echo "\
+Usage: $PROGNAME -u BASEURL -l USERNAME -p PASSWORD [OPTION...]
+Nagios plugin to monitor Guacamole active connections via REST API
+
+Supported options:
+$(sed -nre 's,^\s*##> (.+),    \1,p' "$0")
+
+Required external commands:
+    ${EXTERNAL_COMMANDS[*]}"
+    exit 3
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        ##> -u, --url       Guacamole URL
+        -u|--url) BASEURL=$2; shift ;;
+        ##> -l, --login     Guacamole username
+        -l|--login) USERNAME=$2; shift ;;
+        ##> -p, --password  Guacamole password
+        -p|--password) PASSWORD=$2; shift ;;
+        ##> -w, --warning   Warning threshold as integer
+        -w|--warning) WARNING=$2; shift ;;
+        ##> -c, --critical  Critical threshold as integer
+        -c|--critical) CRITICAL=$2; shift ;;
+        ##> -t, --timeout   cURL connect timeout
+        -t|--timeout) TIMEOUT=$2; shift ;;
+        ##> -v, --verbose   Dump cURL commands on stderr
+        -v|--verbose) VERBOSE=1 ;;
+        ##> -h, --help      Display this help
+        -h|--help) exit_usage ;;
+        *) exit_usage ;;
+    esac
+    shift
+done
+[[ -z $BASEURL ]] && exit_usage
+[[ -z $USERNAME ]] && exit_usage
+[[ -z $PASSWORD ]] && exit_usage
+[[ -z $TIMEOUT || -n ${TIMEOUT//[0-9]} ]] && exit_usage
+[[ -n $WARNING && -n ${WARNING//[0-9]} ]] && exit_usage
+[[ -n $CRITICAL && -n ${CRITICAL//[0-9]} ]] && exit_usage
+for i in "${EXTERNAL_COMMANDS[@]}"; do
+    type -P "$i" >/dev/null 2>&1 && continue
+    echo "External command not found: $i"
+    exit 3
+done
+
+curl -d "username=$USERNAME" -d "password=$PASSWORD" "$BASEURL/api/tokens"
+if (( $? != 0 )); then
+    echo "GUAC UNKNOWN: Authentification failed${REPLY:+, $REPLY}"
+    exit 3
+fi
+
+auth=( $(echo "$REPLY" |jq -r '"\(.authToken)\n\(.dataSource)"') )
+if [[ $? != 0 || -z ${auth[0]} || -z ${auth[1]} ]]; then
+    echo "GUAC UNKNOWN: Failed to parse authentication token"
+    exit 3
+fi
+
+TOKEN=${auth[0]}
+SOURCE=${auth[1]}
+trap on_exit EXIT
+
+curl "$BASEURL/api/session/data/$SOURCE/activeConnections?token=$TOKEN"
+if (( $? != 0 )); then
+    echo "GUAC UNKNOWN: Failed to retrieve active connections${REPLY:+, $REPLY}"
+    exit 3
+fi
+
+nb=$(echo "$REPLY" |jq -r 'to_entries |length')
+if [[ $? != 0 || -z $nb || -n ${nb//[0-9]} ]]; then
+    echo "GUAC UNKNOWN: Failed to parse active connections data"
+    exit 3
+fi
+
+(( nb > 1 )) && s=s || s=
+if (( CRITICAL > 0 && nb >= CRITICAL )); then
+    echo "GUAC CRITICAL: $nb active connection$s|nb=$nb;$WARNING;$CRITICAL"
+    exit 2
+elif (( WARNING > 0 && nb >= WARNING )); then
+    echo "GUAC WARNING: $nb active connection$s|nb=$nb;$WARNING;$CRITICAL"
+    exit 1
+else
+    echo "GUAC OK: $nb active connection$s|nb=$nb;$WARNING;$CRITICAL"
+    exit 0
+fi
