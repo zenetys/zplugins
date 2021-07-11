@@ -1,0 +1,130 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+lc = require 'libcheck'
+lp = require 'libperfdata'
+curl = require 'lcurl'
+
+lc.checkname = 'REST'
+lc.shortdescr = 'Check a value returned by an HTTP JSON REST API'
+lc.progtype = 'rest'
+
+lc.optsdef = {
+    { short = 'U', long = 'url', arg = true, required = true, help = 'Request URL' },
+    { short = 'r', long = 'header', arg = true, call = lc.setter_opt_array, help = 'Request header(s)' },
+    { short = 'n', long = 'username', arg = true, help = 'Authentication username' },
+    { short = 'p', long = 'password', arg = true, help = 'Authentication password' },
+    { short = 'd', long = 'post-data', arg = true, help = 'Request data to POST, otherwise GET' },
+    { short = 'L', long = 'follow', arg = true, call = lc.setter_opt_boolean, help = 'Follow location' },
+    { short = 'l', long = 'label', arg = true, required = true, call = lc.setter_opt_array, help = 'Metric(s) name' },
+    { short = 'w', long = 'warning', arg = true, call = lc.setter_opt_array, help = 'Metric(s) warning' },
+    { short = 'c', long = 'critical', arg = true, call = lc.setter_opt_array, help = 'Metric(s) critical' },
+    { short = 'u', long = 'uom', arg = true, call = lc.setter_opt_array, help = 'Metric(s) uom' },
+    { short = 'm', long = 'min', arg = true, call = lc.setter_opt_array, help = 'Metric(s) min' },
+    { short = 'M', long = 'max', arg = true, call = lc.setter_opt_array, help = 'Metric(s) max' },
+    { short = 't', long = 'timeout', arg = true, call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
+    { short = 'R', long = 'netrc', arg = true, call = lc.setter_opt_iboolean, help = 'Enable ~/.netrc' },
+    -- 0: CURL_NETRC_IGNORED, 1: CURL_NETRC_OPTIONAL
+    { short = 'N', long = 'check-name', arg = true, call = function (lc,o,v) lc.checkname = v; return v end,
+      help = 'Set output prefix' },
+}
+
+lc:init_opts()
+if not lc.opts.header then lc.opts.header = {} end
+if not lc.opts.warning then lc.opts.warning = {} end
+if not lc.opts.critical then lc.opts.critical = {} end
+if not lc.opts.uom then lc.opts.uom = {} end
+if not lc.opts.min then lc.opts.min = {} end
+if not lc.opts.max then lc.opts.max = {} end
+if not lc.opts.timeout then lc.opts.timeout = 10 end
+if not lc.opts.netrc then lc.opts.netrc = 0 end
+
+-- query
+if lc.opts.post_data ~= nil and lc.opts.post_data:sub(1, 1) == '@' then
+    fd, err = io.open(lc.opts.post_data:sub(2), 'rb')
+    if not fd then lc:die(lc.UNKNOWN, 'Cannot open data file: '..err) end
+    lc.opts.post_data, err = fd:read('*a')
+    fd:close()
+    if not lc.opts.post_data then lc:die(lc.UNKNOWN, 'Cannot read data file: '..err) end
+end
+
+curlopts = {
+    url = lc.opts.url,
+    ssl_verifypeer = 0,
+    ssl_verifyhost = 0,
+    timeout = lc.opts.timeout,
+    writefunction = function (x)
+        data = (data or '')..x
+        return x and x:len() or 0
+    end,
+    verbose = lc.opts.debug,
+    username = lc.opts.username,
+    password = lc.opts.password,
+    followlocation = lc.opts.follow,
+    [curl.OPT_FAILONERROR] = true,
+    [curl.OPT_NETRC] = lc.opts.netrc,
+}
+if #lc.opts.header > 0 then
+    -- some versions of lua-curl complain if empty
+    curlopts['httpheader'] = lc.opts.header
+end
+if lc.opts.post_data ~= nil then
+    -- switch from GET to POST
+    curlopts['postfields'] = lc.opts.post_data
+end
+
+lc:dump(curlopts, 'Dump curlopts')
+c = curl.easy(curlopts)
+success, err = pcall(c.perform, c)
+code = c:getinfo(curl.INFO_RESPONSE_CODE)
+c:close()
+
+if not success then
+    msg = 'cURL failed: '
+    if code ~= nil and code > 0 then
+        -- on some version of lua / lua-curl code will be print as float,
+        -- cleanup with string.format()
+        msg = msg..string.format('HTTP status %d, ', code)
+    end
+    lc:die(lc.UNKNOWN, msg..err:msg())
+end
+
+-- json
+lc:dump(data, 'Dump data')
+data, err = lc.cjson.decode(data)
+if not data then lc:die(lc.UNKNOWN, 'JSON decode failed: '..err) end
+
+-- perfdata
+perfdata = {}
+for i = 1, #lc.opts.label do
+    -- path[:label], path is split[3], label is split[4]
+    split = { lc.opts.label[i]:find('^([^:]+):?(.*)') }
+    if split[1] ~= nil then
+        p = {
+            name = split[4]:len() > 0 and split[4] or split[3],
+            warning = lc.opts.warning[i],
+            critical = lc.opts.critical[i],
+            uom = lc.opts.uom[i],
+            min = lc.opts.min[i],
+            max = lc.opts.max[i],
+        }
+        success, value = pcall(load('return data.'..split[3]))
+        if success then
+            p.value = tonumber(value)
+        else
+            lc.perr('Could not eval '..split[3]..' in JSON data')
+            p.value = nil
+        end
+        table.insert(perfdata, p)
+    end
+end
+lc:dump(perfdata, 'Dump perfdata')
+
+-- state
+lc.exit_code = lp.compute_perfdata(perfdata)
+lc.exit_message = lp.format_output(perfdata)..'|'..
+    lp.format_perfdata(perfdata)
