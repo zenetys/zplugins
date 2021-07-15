@@ -3,6 +3,9 @@
 -- Initial author: Julien Thomas
 -- Licence: MIT
 
+-- This flag has effect on luasnmp >= 1.0.8.
+-- On previous versions of luasnmp, an export MIBS= MIBDIRS= is required
+-- to avoid loading the mib files, which considerably speed-up execution.
 LUA_SNMP_MIBS = false
 
 local cjson = require 'cjson.safe'
