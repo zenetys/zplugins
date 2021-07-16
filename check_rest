@@ -34,7 +34,6 @@ lc.optsdef = {
 }
 
 lc.init_opts()
-if not lc.opts.header then lc.opts.header = {} end
 if not lc.opts.warning then lc.opts.warning = {} end
 if not lc.opts.critical then lc.opts.critical = {} end
 if not lc.opts.uom then lc.opts.uom = {} end
@@ -69,8 +68,8 @@ curlopts = {
     [curl.OPT_FAILONERROR] = true,
     [curl.OPT_NETRC] = lc.opts.netrc,
 }
-if #lc.opts.header > 0 then
-    -- some versions of lua-curl complain if empty
+-- some versions of lua-curl complain if httpheader is nil or an empty array
+if lc.opts.header and #lc.opts.header > 0 then
     curlopts['httpheader'] = lc.opts.header
 end
 lc.dump(curlopts, 'Dump curlopts')
