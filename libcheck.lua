@@ -372,7 +372,8 @@ end
 
 function lc.setter_opt_array(lc, opt, value)
     if type(lc.opts[opt.key]) ~= 'table' then lc.opts[opt.key] = {} end
-    for i in value:gmatch('[^,]*') do table.insert(lc.opts[opt.key], i) end
+    -- value:gmatch('[^,]*') wont work on lua < 5.3.3
+    for i in (value..','):gmatch('([^,]*),') do table.insert(lc.opts[opt.key], i) end
     return lc.opts[opt.key]
 end
 
