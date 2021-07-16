@@ -56,7 +56,7 @@ function lc.mkdir_p(dir)
             ret, err = lfs.mkdir(to_create)
             if not ret then return nil, err end
         elseif ret ~= 'directory' then
-            return nil, ret..' '..' exists'
+            return nil, ret..' exists: '..to_create
         end
     end
     return true
