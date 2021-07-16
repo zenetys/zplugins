@@ -65,6 +65,7 @@ curlopts = {
     username = lc.opts.username,
     password = lc.opts.password,
     followlocation = lc.opts.follow,
+    postfields = lc.opts.post_data,
     [curl.OPT_FAILONERROR] = true,
     [curl.OPT_NETRC] = lc.opts.netrc,
 }
@@ -72,11 +73,6 @@ if #lc.opts.header > 0 then
     -- some versions of lua-curl complain if empty
     curlopts['httpheader'] = lc.opts.header
 end
-if lc.opts.post_data ~= nil then
-    -- switch from GET to POST
-    curlopts['postfields'] = lc.opts.post_data
-end
-
 lc.dump(curlopts, 'Dump curlopts')
 c = curl.easy(curlopts)
 success, err = pcall(c.perform, c)
