@@ -29,6 +29,7 @@ lc.optsdef = {
     { short = 't', long = 'timeout', arg = true, call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
     { short = 'R', long = 'netrc', arg = true, call = lc.setter_opt_iboolean, help = 'Enable ~/.netrc' },
     -- 0: CURL_NETRC_IGNORED, 1: CURL_NETRC_OPTIONAL
+    { short = 'j', long = 'cookies', arg = true, call = lc.setter_opt_boolean, help = 'Store and reuse cookies' },
     { short = 'N', long = 'check-name', arg = true, call = function (lc,o,v) lc.checkname = v; return v end,
       help = 'Set output prefix' },
 }
@@ -71,6 +72,11 @@ curlopts = {
 -- some versions of lua-curl complain if httpheader is nil or an empty array
 if lc.opts.header and #lc.opts.header > 0 then
     curlopts['httpheader'] = lc.opts.header
+end
+if lc.opts.cookies then
+    lc.init_cache()
+    curlopts['cookiefile'] = lc.cachedir..'/cookies'
+    curlopts['cookiejar'] = lc.cachedir..'/cookies'
 end
 lc.dump(curlopts, 'Dump curlopts')
 c = curl.easy(curlopts)
