@@ -529,7 +529,7 @@ function lc:snmpwalk(sess, oid)
         return nil, err
     end
 
-    self:dump(data)
+    self:dump(data, 'Dump snmpwalk result')
     for k, v in ipairs(data) do
         if not v.value then
             err = 'snmpwalk: no value at '..v.oid
@@ -603,7 +603,7 @@ function lc:snmpbulkwalk(sess, root_oid, options)
         end
     end
 
-    self:dump(out)
+    self:dump(out, 'Dump snmpbulkwalk result')
     if #out == 0 then
         err = 'snmpbulkwalk: no data'
         self:debug(err)
@@ -626,7 +626,7 @@ function lc:snmpget(sess, oids, allow_fail)
         return nil, err
     end
 
-    self:dump(data)
+    self:dump(data, 'Dump snmpget result')
     if type(oids) == 'string' then
         if not data.value and allow_fail ~= true then
             err = 'snmpget: no value at '..data.oid
