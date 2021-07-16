@@ -147,9 +147,9 @@ end
 -- @param object The variable to dump.
 -- @return nil
 --
-function lc:dump(object, text)
-    if self.opts.debug == true then
-        self.pdump(object, text)
+function lc.dump(object, text)
+    if lc.opts.debug == true then
+        lc.pdump(object, text)
     end
 end
 
@@ -177,9 +177,9 @@ end
 -- @param message The message to print.
 -- @return nil
 --
-function lc:debug(message)
-    if self.opts.debug == true then
-        self.pdebug(message)
+function lc.debug(message)
+    if lc.opts.debug == true then
+        lc.pdebug(message)
     end
 end
 
@@ -187,38 +187,36 @@ end
 -- custom exit handlers can be registered by inserting callbacks or
 -- function references to the on_exit_handlers array.
 --
--- @param self This library instance object.
 -- @return false to break execution of the exit handlers sequence.
 --      In that case program still terminates.
 --
-function default_on_exit(self)
+function default_on_exit()
     local output
 
-    output = self.checkname..' '..self.status_text[self.exit_code]..': '..
-        (self.exit_message and self.exit_message or 'No output defined')
+    output = lc.checkname..' '..lc.status_text[lc.exit_code]..': '..
+        (lc.exit_message and lc.exit_message or 'No output defined')
     print(output)
 
-    self:dump(self.opts, 'Dump opts')
-    self:dump(self.cache, 'Dump cache')
+    lc.dump(lc.opts, 'Dump opts')
+    lc.dump(lc.cache, 'Dump cache')
 end
 
 -- Finalizer method that runs registered custom exit handlers in sequence.
 -- If an exit handler returns false, the remaining ones are not executed.
 --
--- @param self This library instance object.
 -- @return nil, program terminates.
 --
-function lc_meta.__gc(self)
-    if self._gc_has_run then return end
-    self._gc_has_run = true
+function lc_meta.__gc()
+    if lc._gc_has_run then return end
+    lc._gc_has_run = true
 
-    self:debug('Run exit handlers...')
-    if self.exit_code == nil then self.exit_code = 0 end
-    for k,v in ipairs(self.on_exit_handlers) do
-        if v(self) == false then break end
+    lc.debug('Run exit handlers...')
+    if lc.exit_code == nil then lc.exit_code = 0 end
+    for k,v in ipairs(lc.on_exit_handlers) do
+        if v() == false then break end
     end
 
-    os.exit(self.exit_code, true)
+    os.exit(lc.exit_code, true)
 end
 
 -- Terminates the program with custom exit code and message.
@@ -228,10 +226,10 @@ end
 -- @param code Exit messgae.
 -- @return nil, program terminates.
 --
-function lc:die(code, message)
+function lc.die(code, message)
     lc.exit_code = code
     lc.exit_message = message
-    lc_meta.__gc(self)
+    lc_meta.__gc()
 end
 
 -- Compute the path of the cache directory and create it. On failure, this
@@ -239,30 +237,30 @@ end
 --
 -- @return true on success, program dies on failure.
 --
-function lc:init_cache()
-    if not self.opts.cachebase then
-        self.opts.cachebase = os.getenv('CACHEBASE')
-        if not self.opts.cachebase then
-            self.opts.cachebase = os.getenv('HOME')
-            if not self.opts.cachebase then
-                self.opts.cachebase = '/tmp'
+function lc.init_cache()
+    if not lc.opts.cachebase then
+        lc.opts.cachebase = os.getenv('CACHEBASE')
+        if not lc.opts.cachebase then
+            lc.opts.cachebase = os.getenv('HOME')
+            if not lc.opts.cachebase then
+                lc.opts.cachebase = '/tmp'
             end
-            self.opts.cachebase = self.opts.cachebase..'/.libcheck'
+            lc.opts.cachebase = lc.opts.cachebase..'/.libcheck'
         end
     end
 
-    if not self.opts.cacheid then
-        self.opts.cacheid = self.cindex(table.concat(arg, '_'))
+    if not lc.opts.cacheid then
+        lc.opts.cacheid = lc.cindex(table.concat(arg, '_'))
     end
 
-    self.cachedir = self.opts.cachebase ..
-        '/'..self.progname ..
-        '/'..self.opts.cacheid
+    lc.cachedir = lc.opts.cachebase ..
+        '/'..lc.progname ..
+        '/'..lc.opts.cacheid
 
-    local ret, err = self.mkdir_p(self.cachedir)
+    local ret, err = lc.mkdir_p(lc.cachedir)
     if ret then return true end
-    self.perr('init_cache: '..err)
-    self:die(self.UNKNOWN, 'Cache init failed - '..err)
+    lc.perr('init_cache: '..err)
+    lc.die(lc.UNKNOWN, 'Cache init failed - '..err)
 end
 
 -- Load a JSON file from the cache directory. The parsed data must be
@@ -272,11 +270,11 @@ end
 -- @return Parsed table object on success, an empty table if the cache
 --      file does not exit, program dies on failure.
 --
-function lc:load_cache(name)
+function lc.load_cache(name)
     local ret, err_load, err_rm
     if not name then name = 'CACHE' end
-    if not self.cachedir then self:init_cache() end
-    local file = self.cachedir..'/'..name
+    if not lc.cachedir then lc.init_cache() end
+    local file = lc.cachedir..'/'..name
     if not lfs.attributes(file, 'mode') then return {} end
     ret, err_load = lc.load_json(file)
     if type(ret) == 'table' then
@@ -284,15 +282,15 @@ function lc:load_cache(name)
     elseif ret ~= nil then
         err_load = 'Invalid data, table object required'
     end
-    self.perr('load_cache: '..name..': '..err_load)
+    lc.perr('load_cache: '..name..': '..err_load)
     ret, err_rm = os.remove(file)
     if ret then
-        self.perr('load_cache: '..name..': File removed')
+        lc.perr('load_cache: '..name..': File removed')
     else
-        self.perr('load_cache: '..name..': File remove failed')
-        self.perr('load_cache: '..name..': '..err_rm)
+        lc.perr('load_cache: '..name..': File remove failed')
+        lc.perr('load_cache: '..name..': '..err_rm)
     end
-    self:die(self.UNKNOWN, 'Cache load failed - '..name..': '..err_load)
+    lc.die(lc.UNKNOWN, 'Cache load failed - '..name..': '..err_load)
 end
 
 -- Save data to a JSON file in the cache directory. The data to save must
@@ -301,33 +299,32 @@ end
 --
 -- @return nil, program dies on failure.
 --
-function lc:save_cache(data, name)
+function lc.save_cache(data, name)
     local file, ret, err
     if not name then name = 'CACHE' end
     if type(data) ~= 'table' then
         err = 'Invalid data, table object required'
-        self.perr('save_cache: '..name..': '..err)
-        self:die(self.UNKNOWN, 'Cache save failed - '..name..': '..err)
+        lc.perr('save_cache: '..name..': '..err)
+        lc.die(lc.UNKNOWN, 'Cache save failed - '..name..': '..err)
     end
-    if not self.cachedir then self:init_cache() end
-    file = self.cachedir..'/'..name
+    if not lc.cachedir then lc.init_cache() end
+    file = lc.cachedir..'/'..name
     ret, err = lc.save_json(data, file)
     if not ret then
-        self.perr('save_cache: '..name..': '..err)
-        self:die(self.UNKNOWN, 'Cache save failed - '..name..': '..err)
+        lc.perr('save_cache: '..name..': '..err)
+        lc.die(lc.UNKNOWN, 'Cache save failed - '..name..': '..err)
     end
 end
 
 -- Print usage help message on stdout and exit.
 --
--- @param self This library instance object.
 -- @return nil, program terminates.
 --
-function lc.exit_usage(self)
-    print('Monitoring plugin '..self.progname)
-    if self.shortdescr then print(self.shortdescr) end
+function lc.exit_usage()
+    print('Monitoring plugin '..lc.progname)
+    if lc.shortdescr then print(lc.shortdescr) end
     print('\nAvailable options:')
-    for k,v in pairs(self.optsdef) do
+    for k,v in pairs(lc.optsdef) do
         local left, flags = '', ''
         if v.short then
             left = left..'-'..v.short
@@ -377,47 +374,47 @@ function lc.setter_opt_array(lc, opt, value)
     return lc.opts[opt.key]
 end
 
-function lc:init_type_snmp()
-    self.snmp = require 'snmp'
+function lc.init_type_snmp()
+    lc.snmp = require 'snmp'
 
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'H', long = 'hostname', arg = true, required = true,
           help = 'Hostname or IP address' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'p', long = 'port', arg = true,
-          call = self.setter_opt_number,
+          call = lc.setter_opt_number,
           help = 'SNMP port number' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'P', long = 'protocol', arg = true,
-          call = self.setter_opt_snmp_protocol,
+          call = lc.setter_opt_snmp_protocol,
           help = 'SNMP protocol version: 1|2c|3' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'C', long = 'community', arg = true,
           help = 'SNMP community' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'e', long = 'retries', arg = true,
-          call = self.setter_opt_number,
+          call = lc.setter_opt_number,
           help = 'Number of retries in SNMP requests' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 't', long = 'timeout', arg = true,
-          call = self.setter_opt_number,
+          call = lc.setter_opt_number,
           help = 'Seconds before connection times out' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'U', long = 'secname', arg = true,
           help = 'SNMP v3 username' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'L', long = 'seclevel', arg = true,
           help = 'SNMP v3 security level' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'a', long = 'authproto', arg = true,
           help = 'SNMP v3 authentification protocol: MD5|SHA' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'A', long = 'authpassword', arg = true,
           help = 'SNMP v3 authentification password' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'x', long = 'privproto', arg = true,
           help = 'SNMP v3 privacy protocol: MD5|SHA' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'X', long = 'privpassword', arg = true,
           help = 'SNMP v3 privacy password' })
 end
@@ -429,35 +426,35 @@ end
 -- @return nil, parsed options are set in the opts table, program
 --      dies on failure.
 --
-function lc:init_opts()
-    if self.progtype == 'snmp' then self:init_type_snmp() end
+function lc.init_opts()
+    if lc.progtype == 'snmp' then lc.init_type_snmp() end
 
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { long = 'cachebase', arg = true,
           help = 'Set the root directory of the cache' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'I', long = 'cacheid', arg = true,
           call = function (lc,o,v) return (v:gsub('[^%w/_]', '_')) end,
           help = 'Set the ID of the cache' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'h', long = 'help', arg = false,
-          call = self.exit_usage,
+          call = lc.exit_usage,
           help = 'Display this help' })
-    table.insert(self.optsdef,
+    table.insert(lc.optsdef,
         { short = 'D', long = 'debug', arg = false,
           help = 'Enable debug' })
 
     local arg2opt = {}
     local i = 1
 
-    for k, v in ipairs(self.optsdef) do
+    for k, v in ipairs(lc.optsdef) do
         if v.long then
             arg2opt[v.long] = v
-            if not v.key then v.key = self.cindex(v.long) end
+            if not v.key then v.key = lc.cindex(v.long) end
         end
         if v.short then
             arg2opt[v.short] = v
-            if not v.key then v.key = self.cindex(v.short) end
+            if not v.key then v.key = lc.cindex(v.short) end
         end
     end
 
@@ -468,7 +465,7 @@ function lc:init_opts()
 
         if optarg == '--' then i = i + 1; break
         elseif arg2opt[optkey] then optdef = arg2opt[optkey]
-        else self:die(self.UNKNOWN, 'Invalid option '..optarg) end
+        else lc.die(lc.UNKNOWN, 'Invalid option '..optarg) end
 
         if optdef.arg then
             i = i + 1
@@ -479,64 +476,64 @@ function lc:init_opts()
         end
 
         if optvalue ~= nil and optdef.call then
-            optvalue = optdef.call(self, optdef, optvalue)
+            optvalue = optdef.call(lc, optdef, optvalue)
             if optvalue == nil then
-                self:die(self.UNKNOWN, 'Invalid value for option '..optarg)
+                lc.die(lc.UNKNOWN, 'Invalid value for option '..optarg)
             end
         end
 
-        self.opts[optdef.key] = optvalue
+        lc.opts[optdef.key] = optvalue
         i = i + 1
     end
 
-    for k, v in ipairs(self.optsdef) do
-        if v.required and self.opts[v.key] == nil then
+    for k, v in ipairs(lc.optsdef) do
+        if v.required and lc.opts[v.key] == nil then
             local optmsg = nil
             if v.short then optmsg = '-'..v.short end
             if v.long then optmsg = (optmsg and optmsg..', ' or '')..'--'..v.long end
-            self:die(self.UNKNOWN, 'Missing value for option '..optmsg)
+            lc.die(lc.UNKNOWN, 'Missing value for option '..optmsg)
         end
     end
 end
 
-function lc:snmpopen(local_opts)
-    local opts = { peer = self.opts.hostname }
-    if self.opts.port then opts.port = self.opts.port end
-    if self.opts.protocol then opts.version = self.opts.protocol end
-    if self.opts.community then opts.community = self.opts.community end
-    if self.opts.retries then opts.retries = self.opts.retries end
-    if self.opts.timeout then opts.timeout = self.opts.timeout end
-    if self.opts.secname then opts.user = self.opts.secname end
-    if self.opts.seclevel then opts.securityLevel = self.opts.seclevel end
-    if self.opts.authproto then opts.authType = self.opts.authproto end
-    if self.opts.authpassword then opts.autPassphrase = self.opts.authpassword end
-    if self.opts.privproto then opts.privType = self.opts.privproto end
-    if self.opts.privpassword then opts.privPassphrase = self.opts.privpassword end
+function lc.snmpopen(local_opts)
+    local opts = { peer = lc.opts.hostname }
+    if lc.opts.port then opts.port = lc.opts.port end
+    if lc.opts.protocol then opts.version = lc.opts.protocol end
+    if lc.opts.community then opts.community = lc.opts.community end
+    if lc.opts.retries then opts.retries = lc.opts.retries end
+    if lc.opts.timeout then opts.timeout = lc.opts.timeout end
+    if lc.opts.secname then opts.user = lc.opts.secname end
+    if lc.opts.seclevel then opts.securityLevel = lc.opts.seclevel end
+    if lc.opts.authproto then opts.authType = lc.opts.authproto end
+    if lc.opts.authpassword then opts.autPassphrase = lc.opts.authpassword end
+    if lc.opts.privproto then opts.privType = lc.opts.privproto end
+    if lc.opts.privpassword then opts.privPassphrase = lc.opts.privpassword end
     if local_opts then
         for k, v in pairs(local_opts) do opts[k] = v end
     end
 
     local sess, err = snmp.open(opts);
-    if not sess then self:die(lc.UNKNOWN, 'SNMP session failed - '..err) end
-    table.insert(self.on_exit_handlers, 1, function (self) sess:close() end)
+    if not sess then lc.die(lc.UNKNOWN, 'SNMP session failed - '..err) end
+    table.insert(lc.on_exit_handlers, 1, function () sess:close() end)
     return sess
 end
 
-function lc:snmpwalk(sess, oid)
-    self:debug('snmpwalk: oid '..oid)
+function lc.snmpwalk(sess, oid)
+    lc.debug('snmpwalk: oid '..oid)
     local data, err = sess:walk(oid);
 
     if not data then
         err = 'snmpwalk: '..err
-        self:debug(err)
+        lc.debug(err)
         return nil, err
     end
 
-    self:dump(data, 'Dump snmpwalk result')
+    lc.dump(data, 'Dump snmpwalk result')
     for k, v in ipairs(data) do
         if not v.value then
             err = 'snmpwalk: no value at '..v.oid
-            self:debug(err)
+            lc.debug(err)
             return nil, err
         end
     end
@@ -544,7 +541,7 @@ function lc:snmpwalk(sess, oid)
     return data
 end
 
-function lc:snmpbulkwalk(sess, root_oid, options)
+function lc.snmpbulkwalk(sess, root_oid, options)
     local out, running = {}, true
     local root_oid_len, oid, data, err, errindex
 
@@ -552,27 +549,27 @@ function lc:snmpbulkwalk(sess, root_oid, options)
     if not options then options = {} end
     if options.batch_len == nil then options.batch_len = 20 end
 
-    self:debug('snmpbulkwalk: oid '..root_oid)
+    lc.debug('snmpbulkwalk: oid '..root_oid)
 
     root_oid_len = snmp.mib.oidlen(root_oid)
     if not root_oid_len then
         err = 'snmpbulkwalk: cannot compute oid length'
-        self:debug(err)
+        lc.debug(err)
         return nil, err
     end
 
     oid = root_oid
     while running do
-        self:debug('snmpbulkwalk: getbulk 0, '..options.batch_len..',  '..oid)
+        lc.debug('snmpbulkwalk: getbulk 0, '..options.batch_len..',  '..oid)
         data, err, erri = sess:getbulk(0, options.batch_len, { oid })
         if not data or err then
             err = 'snmpbulkwalk: '..err
-            self:debug(err)
+            lc.debug(err)
             return nil, err
         end
         if erri then
             err = 'snmpbulkwalk: pdu error at '..data[erri].oid
-            self:debug(err)
+            lc.debug(err)
             return nil, err
         end
 
@@ -590,13 +587,13 @@ function lc:snmpbulkwalk(sess, root_oid, options)
             if not options.no_check_increase and
                snmp.mib.oidcompare(oid, v.oid) >= 0 then
                 err = 'snmpbulkwalk: oid not increasing at '..v.oid
-                self:debug(err)
+                lc.debug(err)
                 return nil, err
             end
             -- check for a value
             if not v.value then
                 err = 'snmpbulkwalk: no value at '..v.oid
-                self:debug(err)
+                lc.debug(err)
                 return nil, err
             end
 
@@ -606,10 +603,10 @@ function lc:snmpbulkwalk(sess, root_oid, options)
         end
     end
 
-    self:dump(out, 'Dump snmpbulkwalk result')
+    lc.dump(out, 'Dump snmpbulkwalk result')
     if #out == 0 then
         err = 'snmpbulkwalk: no data'
-        self:debug(err)
+        lc.debug(err)
         return nil, err
     end
 
@@ -617,30 +614,30 @@ function lc:snmpbulkwalk(sess, root_oid, options)
 end
 
 -- Note type oids vs type allow_fail
-function lc:snmpget(sess, oids, allow_fail)
+function lc.snmpget(sess, oids, allow_fail)
     if type(oids) == 'string'
-    then self:debug('snmpget: oid '..oids)
-    else self:debug('snmpget: oids '..table.concat(oids, ' ')) end
+    then lc.debug('snmpget: oid '..oids)
+    else lc.debug('snmpget: oids '..table.concat(oids, ' ')) end
 
     local data, err = sess:get(oids);
     if not data then
         err = 'snmpget: '..err
-        self:debug(err)
+        lc.debug(err)
         return nil, err
     end
 
-    self:dump(data, 'Dump snmpget result')
+    lc.dump(data, 'Dump snmpget result')
     if type(oids) == 'string' then
         if not data.value and allow_fail ~= true then
             err = 'snmpget: no value at '..data.oid
-            self:debug(err)
+            lc.debug(err)
             return nil, err
         end
     else
         for k, v in ipairs(data) do
             if not v.value and (not allow_fail or not allow_fail[k]) then
                 err = 'snmpget: no value at '..v.oid
-                self:debug(err)
+                lc.debug(err)
                 return nil, err
             end
         end
