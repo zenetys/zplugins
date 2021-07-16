@@ -248,7 +248,7 @@ function lc:init_cache()
                 self.opts.cachebase = '/tmp'
             end
         end
-        self.opts.cachebase = self.opts.cachebase..'/.lc'
+        self.opts.cachebase = self.opts.cachebase..'/.libcheck'
     end
 
     if not self.opts.cacheid then
