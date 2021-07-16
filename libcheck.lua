@@ -460,7 +460,7 @@ function lc:init_opts()
 
     while i <= #arg do
         local optarg = arg[i]
-        local optkey = self.cindex(optarg:gsub('^-*', ''))
+        local optkey = optarg:gsub('^-*', '')
         local optdef, optvalue
 
         if optarg == '--' then i = i + 1; break
