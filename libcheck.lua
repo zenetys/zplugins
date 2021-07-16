@@ -433,6 +433,9 @@ function lc:init_opts()
     if self.progtype == 'snmp' then self:init_type_snmp() end
 
     table.insert(self.optsdef,
+        { long = 'cachebase', arg = true,
+          help = 'Set the root directory of the cache' })
+    table.insert(self.optsdef,
         { short = 'I', long = 'cacheid', arg = true,
           call = function (lc,o,v) return (v:gsub('[^%w/_]', '_')) end,
           help = 'Set the ID of the cache' })
