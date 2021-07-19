@@ -82,7 +82,7 @@ local UOM_TMULT = {
     ["KB"] = 1024,
     ["MB"] = 1024*1024,
     ["GB"] = 1024*1024*1024,
-    ["%"]  = 0.01,
+    ["%"]  = 1,
     ["s"]  = 1,
     ["ms"] = 0.001,
     ["us"] = 0.000001,
@@ -159,7 +159,7 @@ function LP.numfmt(n, to, from, base, max)
     end
 
     if (to == "%") then
-        return string.format(fp(n*100) .. "%%", n*100)
+        return string.format(fp(n) .. "%%", n)
     elseif (to == "c") then
         return string.format("%dc", n)
     elseif (to == "s") then
@@ -325,7 +325,7 @@ function LP.format_output(perfdata)
         local max = LP.numfmt(p.max)
 
         local m = p.name .. ": " .. (v or 'nil')
-        if (max) then
+        if (max and p.uom ~= '%') then
             m = m .. "/" .. LP.numfmt(p.max, p.uom)
         end
         if (p.state ~= LP.STATE_OK) then
