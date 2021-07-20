@@ -113,12 +113,17 @@ for i = 1, #lc.opts.label do
             min = lc.opts.min[i],
             max = lc.opts.max[i],
         }
-        success, value = pcall(load('return data.'..split[3]))
-        if success then
-            p.value = tonumber(value)
+        fn, err = load('return data.'..split[3])
+        if fn == nil then
+            lc.perr('Failed to load eval code: '..err)
         else
-            lc.perr('Could not eval '..split[3]..' in JSON data')
-            p.value = nil
+            success, value = pcall(fn)
+            if success then
+                p.value = tonumber(value)
+            else
+                lc.perr('Failed to run eval code: '..value)
+                p.value = nil
+            end
         end
         table.insert(perfdata, p)
     end
