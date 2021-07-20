@@ -84,6 +84,7 @@ lc.dump(curlopts, 'Dump curlopts')
 c = curl.easy(curlopts)
 success, err = pcall(c.perform, c)
 code = c:getinfo(curl.INFO_RESPONSE_CODE)
+time = c:getinfo(curl.INFO_TOTAL_TIME)
 c:close()
 
 if not success then
@@ -147,6 +148,14 @@ if lc.opts.addon ~= nil then
     if fn == nil then lc.die(lc.UNKNOWN, 'Failed to load addon script: '..err) end
     success, err = pcall(fn)
     if not success then lc.die(lc.UNKNOWN, 'Failed to run addon script: '..err) end
+end
+-- if no label or perfdata was given, add curl time
+if #perfdata == 0 then
+    table.insert(perfdata, {
+        name = 'time',
+        value = time,
+        uom = 's',
+    })
 end
 lc.dump(perfdata, 'Dump perfdata')
 
