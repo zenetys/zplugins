@@ -101,6 +101,17 @@ if not data then lc.die(lc.UNKNOWN, 'JSON decode failed: '..err) end
 
 -- perfdata
 perfdata = {}
+
+-- limited env for addons/eval code
+env_limited = {
+    -- check related
+    data = data, lc = lc, perfdata = perfdata,
+    -- lua functions
+    ipairs = ipairs, math = math, pairs = pairs, print = print,
+    string = string, table = table, type = type, tonumber = tonumber,
+    tostring = tostring,
+}
+
 for i = 1, #lc.opts.label do
     -- path[:label], path is split[3], label is split[4]
     split = { lc.opts.label[i]:find('^([^:]+):?(.*)') }
@@ -113,7 +124,7 @@ for i = 1, #lc.opts.label do
             min = lc.opts.min[i],
             max = lc.opts.max[i],
         }
-        fn, err = load('return data.'..split[3])
+        fn, err = load('return data.'..split[3], nil, nil, env_limited)
         if fn == nil then
             lc.perr('Failed to load eval code: '..err)
         else
