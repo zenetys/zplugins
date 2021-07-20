@@ -20,7 +20,8 @@ lc.optsdef = {
     { short = 'p', long = 'password', arg = true, help = 'Authentication password' },
     { short = 'd', long = 'post-data', arg = true, help = 'Request data to POST, otherwise GET' },
     { short = 'L', long = 'follow', arg = true, call = lc.setter_opt_boolean, help = 'Follow location' },
-    { short = 'l', long = 'label', arg = true, required = true, call = lc.setter_opt_array, help = 'Metric(s) name' },
+    { short = 'l', long = 'label', arg = true, call = lc.setter_opt_array, help = 'Metric(s) name' },
+    { short = 'a', long = 'addon', arg = true, help = 'Custom addon script to handle JSON data' },
     { short = 'w', long = 'warning', arg = true, call = lc.setter_opt_array, help = 'Metric(s) warning' },
     { short = 'c', long = 'critical', arg = true, call = lc.setter_opt_array, help = 'Metric(s) critical' },
     { short = 'u', long = 'uom', arg = true, call = lc.setter_opt_array, help = 'Metric(s) uom' },
@@ -35,6 +36,7 @@ lc.optsdef = {
 }
 
 lc.init_opts()
+if not lc.opts.label then lc.opts.label = {} end
 if not lc.opts.warning then lc.opts.warning = {} end
 if not lc.opts.critical then lc.opts.critical = {} end
 if not lc.opts.uom then lc.opts.uom = {} end
@@ -138,6 +140,13 @@ for i = 1, #lc.opts.label do
         end
         table.insert(perfdata, p)
     end
+end
+-- custom processing
+if lc.opts.addon ~= nil then
+    fn, err = loadfile(lc.opts.addon, nil, env_limited)
+    if fn == nil then lc.die(lc.UNKNOWN, 'Failed to load addon script: '..err) end
+    success, err = pcall(fn)
+    if not success then lc.die(lc.UNKNOWN, 'Failed to run addon script: '..err) end
 end
 lc.dump(perfdata, 'Dump perfdata')
 
