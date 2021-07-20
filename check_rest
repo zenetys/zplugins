@@ -15,6 +15,8 @@ lc.progtype = 'rest'
 
 lc.optsdef = {
     { short = 'U', long = 'url', arg = true, required = true, help = 'Request URL' },
+    { short = 'P', long = 'protocol', arg = true, help = 'Request protocol (http, https), -H required, -U must start with /' },
+    { short = 'H', long = 'hostname', arg = true, help = 'Request host or IP, -P required, -U must start with /' },
     { short = 'r', long = 'header', arg = true, call = lc.setter_opt_array, help = 'Request header(s)' },
     { short = 'n', long = 'username', arg = true, help = 'Authentication username' },
     { short = 'p', long = 'password', arg = true, help = 'Authentication password' },
@@ -36,6 +38,24 @@ lc.optsdef = {
 }
 
 lc.init_opts()
+
+-- extra options checks to set request url
+has_protocol = (lc.opts.protocol and #lc.opts.protocol > 0)
+has_hostname = (lc.opts.hostname and #lc.opts.hostname > 0)
+if (has_protocol and not has_hostname) or
+   (has_hostname and not has_protocol) then
+    lc.die(lc.UNKNOWN, 'Options -P/-H are mutually required')
+end
+if has_protocol then -- and has_hostname
+    if lc.opts.url:sub(1, 1) ~= '/' then
+        lc.die(lc.UNKNOWN, 'URL must start with / (slash) when using -P/-H')
+    end
+    url = lc.opts.protocol..'://'..lc.opts.hostname..lc.opts.url
+else
+    url = lc.opts.url
+end
+
+-- defaults
 if not lc.opts.label then lc.opts.label = {} end
 if not lc.opts.warning then lc.opts.warning = {} end
 if not lc.opts.critical then lc.opts.critical = {} end
@@ -55,7 +75,7 @@ if lc.opts.post_data ~= nil and lc.opts.post_data:sub(1, 1) == '@' then
 end
 
 curlopts = {
-    url = lc.opts.url,
+    url = url,
     ssl_verifypeer = 0,
     ssl_verifyhost = 0,
     timeout = lc.opts.timeout,
