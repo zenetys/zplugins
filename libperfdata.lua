@@ -164,11 +164,11 @@ function LP.numfmt(n, to, from, base, max)
         return string.format("%dc", n)
     elseif (to == "s") then
         if (n > 1) then
-            return string.format("%ds", n)
+            return string.format("%.fs", n)
         elseif (n > 0.001) then
-            return string.format("%dms", n*1000)
+            return string.format("%.fms", n*1000)
         else
-            return string.format("%dus", n*1000*1000)
+            return string.format("%.fus", n*1000*1000)
         end
     elseif (to == "hms") then -- hour/minuts/seconds
         -- FIXME
