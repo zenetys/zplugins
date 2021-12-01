@@ -21,6 +21,7 @@ lc.optsdef = {
     { short = 'n', long = 'username', arg = true, help = 'Authentication username' },
     { short = 'p', long = 'password', arg = true, help = 'Authentication password' },
     { short = 'd', long = 'post-data', arg = true, help = 'Request data to POST, otherwise GET' },
+    { short = 'X', long = 'method', arg = true, help = 'Force request method, eg: GET when using --post-data' },
     { short = 'L', long = 'follow', arg = true, call = lc.setter_opt_boolean, help = 'Follow location' },
     { short = 'l', long = 'label', arg = true, call = lc.setter_opt_array, help = 'Metric(s) name' },
     { short = 'a', long = 'addon', arg = true, help = 'Custom addon script to handle JSON data' },
@@ -88,6 +89,7 @@ curlopts = {
     password = lc.opts.password,
     followlocation = lc.opts.follow,
     postfields = lc.opts.post_data,
+    [curl.OPT_CUSTOMREQUEST] = lc.opts.method,
     [curl.OPT_FAILONERROR] = true,
     [curl.OPT_NETRC] = lc.opts.netrc,
 }
