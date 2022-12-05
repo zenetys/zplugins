@@ -183,7 +183,9 @@ while IFS=$'\x16' read -r -a REPLY; do
     [[ $flag == *R* ]] && continue
 
     # expire timestamp
-    expire=$(date -d "20${expire:0:2}-${expire:2:2}-${expire:4:2} ${expire:6:2}:${expire:8:2}:${expire:10}" +%s)
+    # 2 vs 4 digits year, eg: 271103103225Z vs 20271122230000Z
+    (( ${#expire} == 13 )) && expire="20$expire"
+    expire=$(date -d "${expire:0:4}-${expire:4:2}-${expire:6:2} ${expire:8:2}:${expire:10:2}:${expire:12}" +%s)
     if [[ -z $expire ]]; then
         info_unknown+="${info_critical:+, }$name"
         detail_unknown+=( "Certificate $id, cannot read expire date" )
