@@ -196,11 +196,11 @@ while IFS=$'\x16' read -r -a REPLY; do
     days_before_expire=$(( (expire - now) / 3600 / 24 ))
     if (( days_before_expire >= 0 )); then
         if (( days_before_expire <= CRITICAL )); then
-            info_critical+="${info_critical:+, }$name"
+            info_critical+="${info_critical:+, }$name (${days_before_expire}d)"
             detail_critical+=( "Certificate $id, expire in ${days_before_expire}d" )
             increase_prio "$status" 2; status=$REPLY
         elif (( days_before_expire <= WARNING )); then
-            info_warning+="${info_warning:+, }$name"
+            info_warning+="${info_warning:+, }$name (${days_before_expire}d)"
             detail_warning+=( "Certificate $id, expire in ${days_before_expire}d" )
             increase_prio "$status" 1; status=$REPLY
         fi
@@ -214,22 +214,26 @@ done < <(echo "$openssl_ca_index" |sed -re 's,\t,\x16,g' |sort -t $'\x16' -k 2,2
 if (( ${#detail_critical[@]} > 0 )); then
     cert=cert; (( ${#detail_critical[@]} > 1 )) && cert+=s
     output+="${output:+, }${#detail_critical[@]} $cert expire <= ${CRITICAL}d"
-    (( VERBOSE > 1 )) && output+=" ($info_critical)"
+    (( VERBOSE > 1 )) && output+=": $info_critical"
+    output+=.
 fi
 if (( ${#detail_warning[@]} > 0 )); then
     cert=cert; (( ${#detail_warning[@]} > 1 )) && cert+=s
     output+="${output:+, }${#detail_warning[@]} $cert expire <= ${WARNING}d"
-    (( VERBOSE > 1 )) && output+=" ($info_warning)"
+    (( VERBOSE > 1 )) && output+=": $info_warning"
+    output+=.
 fi
 if (( ${#detail_expired[@]} > 0 )); then
     cert=cert; (( ${#detail_expired[@]} > 1 )) && cert+=s
     output+="${output:+, }${#detail_expired[@]} $cert expired not revoked"
-    (( VERBOSE > 1 )) && output+=" ($info_expired)"
+    (( VERBOSE > 1 )) && output+=": $info_expired"
+    output+=.
 fi
 if (( ${#detail_unknown[@]} > 0 )); then
     cert=cert; (( ${#detail_unknown[@]} > 1 )) && cert+=s
     output+="${output:+, }${#detail_unknown[@]} $cert unknown"
-    (( VERBOSE > 1 )) && output+=" ($info_unknown)"
+    (( VERBOSE > 1 )) && output+=": $info_unknown"
+    output+=.
 fi
 
 if (( VERBOSE == 0 )); then
