@@ -78,7 +78,7 @@ if lc.opts.post_data ~= nil and lc.opts.post_data:sub(1, 1) == '@' then
 
     for i = 1, #lc.opts.parameter do
         -- key is split[3], value is split[4]
-        split = { lc.opts.parameter[i]:find('([%w_-%.]+)=(.*)') }
+        split = { lc.opts.parameter[i]:find('([%w_%-%.]+)=(.*)') }
         if split[1] ~= nil then
             lc.opts.post_data = lc.opts.post_data:gsub('%${'..split[3]:gsub('%.', '%%.')..'}', split[4])
         end
