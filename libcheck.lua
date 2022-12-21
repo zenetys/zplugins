@@ -374,6 +374,17 @@ function lc.setter_opt_array(lc, opt, value)
     return lc.opts[opt.key]
 end
 
+function lc.setter_opt_kvarray(lc, opt, value)
+    if type(lc.opts[opt.key]) ~= 'table' then lc.opts[opt.key] = {} end
+    -- value:gmatch('[^,]*') wont work on lua < 5.3.3
+    for i in (value..','):gmatch('([^,]*),') do
+        -- key is kv[3], value is kv[4]
+        local kv = { i:find('([%w_%-%.]+)=(.*)') }
+        if kv[1] ~= nil then lc.opts[opt.key][kv[3]] = kv[4] end
+    end
+    return lc.opts[opt.key]
+end
+
 function lc.init_type_snmp()
     lc.snmp = require 'snmp'
 
