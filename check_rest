@@ -69,13 +69,14 @@ if not lc.opts.timeout then lc.opts.timeout = 10 end
 if not lc.opts.netrc then lc.opts.netrc = 0 end
 
 -- query
-if lc.opts.post_data ~= nil and lc.opts.post_data:sub(1, 1) == '@' then
-    fd, err = io.open(lc.opts.post_data:sub(2), 'rb')
-    if not fd then lc.die(lc.UNKNOWN, 'Cannot open data file: '..err) end
-    lc.opts.post_data, err = fd:read('*a')
-    fd:close()
-    if not lc.opts.post_data then lc.die(lc.UNKNOWN, 'Cannot read data file: '..err) end
-
+if lc.opts.post_data ~= nil then
+    if lc.opts.post_data:sub(1, 1) == '@' then
+        fd, err = io.open(lc.opts.post_data:sub(2), 'rb')
+        if not fd then lc.die(lc.UNKNOWN, 'Cannot open data file: '..err) end
+        lc.opts.post_data, err = fd:read('*a')
+        fd:close()
+        if not lc.opts.post_data then lc.die(lc.UNKNOWN, 'Cannot read data file: '..err) end
+    end
     for i = 1, #lc.opts.parameter do
         -- key is split[3], value is split[4]
         split = { lc.opts.parameter[i]:find('([%w_%-%.]+)=(.*)') }
