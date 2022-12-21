@@ -23,7 +23,7 @@ lc.optsdef = {
     { short = 'd', long = 'post-data', arg = true, help = 'Request data to POST, otherwise GET' },
     { short = 'X', long = 'method', arg = true, help = 'Force request method, eg: GET when using --post-data' },
     { short = 'L', long = 'follow', arg = true, call = lc.setter_opt_boolean, help = 'Follow location' },
-    { short = 'a', long = 'parameter', arg = true, call = lc.setter_opt_array, help = 'Replace ${key} by value in --post-data, format: key=value' },
+    { short = 's', long = 'parameter', arg = true, call = lc.setter_opt_array, help = 'Replace ${key} by value in --post-data, format: key=value' },
     { short = 'l', long = 'label', arg = true, call = lc.setter_opt_array, help = 'Metric(s) name' },
     { short = 'a', long = 'addon', arg = true, help = 'Custom addon script to handle JSON data' },
     { short = 'w', long = 'warning', arg = true, call = lc.setter_opt_array, help = 'Metric(s) warning' },
