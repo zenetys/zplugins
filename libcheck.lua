@@ -88,6 +88,17 @@ function lc.save_json(data, file)
     return true
 end
 
+-- https://stackoverflow.com/a/43286713
+function rawtostring(t)
+    local m = getmetatable(t)
+    if not m then return tostring(t) end
+    local f = m.__tostring
+    m.__tostring = nil
+    local s = tostring(t)
+    m.__tostring = f
+    return s
+end
+
 -- Dump a variable on stderr. The address of printed tables is cached.
 -- Two tables with the same address are only printed once, no matter the
 -- level of recursion. However the address won't be available for tables
@@ -112,20 +123,21 @@ function lc.pdump(object, text, level, tseen)
     local tt = '#'..t
 
     if t == 'table' then
-        local indent, tstr, taddr = string.rep('  ', level), tostring(object)
+        local indent, tstr, taddr = string.rep('  ', level), rawtostring(object)
         if tstr:sub(1, 9) == 'table: 0x' then
             taddr = tstr:sub(8)
             io.stderr:write(tt..':'..taddr)
-            if tseen[taddr] then io.stderr:write(':skip') end
-        else
-            io.stderr:write(tt..':\n'..indent..'__tostring: '..tstr)
-        end
-        if not tseen[taddr] then
-            tseen[taddr] = true
-            for k,v in pairs(object) do
-                io.stderr:write('\n'..indent..k..': ')
-                lc.pdump(v, nil, level + 1, tseen)
+            if tseen[taddr] then
+                io.stderr:write(':skip')
+            else
+                tseen[taddr] = true
+                for k,v in pairs(object) do
+                    io.stderr:write('\n'..indent..k..': ')
+                    lc.pdump(v, nil, level + 1, tseen)
+                end
             end
+        else -- should not happend using rawtostring()
+            io.stderr:write(tt..':\n'..indent..'__tostring: '..tstr)
         end
     elseif t == 'function' then
         local faddr = tostring(object):sub(11)
