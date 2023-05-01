@@ -1,0 +1,195 @@
+#!/bin/bash
+
+set -f
+PROGNAME=${0##*/}
+NAGIOS_STATUS_TEXT=(
+    [0]='OK'
+    [1]='WARNING'
+    [2]='CRITICAL'
+    [3]='UNKNOWN'
+)
+NAGIOS_STATUS_PRIO_TR=( 0 2 3 1 )
+
+DEVICE=
+IS_REGEX=
+ENV=
+SSH_HOST=
+SSH_USER=
+SSH_PORT=
+TIMEOUT= # SSH ConnectTimeout
+SSH_IDENTITY=
+SUDO_USER=
+
+function nagios_exit_usage() {
+    echo "\
+Usage: $PROGNAME [OPTION...] [-d DEVICE]
+Nagios plugin to check for certificates expiration in an OpenSSL CA
+
+Common options:
+  -d, --device    PATH    Disk device path, eg: /dev/sda
+  -r, --regex     IBOOL   Given device is a regex, 0 or 1
+  -S, --sudo-user USER    Run smartctl command with sudo -u USER
+  -E, --bash-env  STRING  Environment to export, eg: PATH=\$PATH:/sbin
+  -h, --help              Display this help
+
+SSH options:
+  -s, --ssh       CMD     Custom SSH command, see documentation below
+  -H, --host      HOST    SSH host, enable to retrieve CA index via SSH
+  -u, --user      USER    SSH username
+  -p, --port      INT     SSH port
+  -i, --identity  FILE    SSH identity key file
+  -t, --timeout   INT     SSH connect timeout
+
+When using option -S, --ssh, classic SSH options get ignored. It is
+then up to the caller to properly escape args and handle SSH options
+like identity, port, user, connect timeout.
+Usage example: check_disk_smart -S 'ssh -i key cmd@bastion host' ...
+"
+    exit 3
+}
+
+# $1: Nagios status code
+# $2: Plugin output message
+# $@: Optional lines of long plugin output
+function nagios_die() {
+    echo "${NAGIOS_STATUS_TEXT[$1]}: $2"
+    (( $# > 2 )) && (IFS=$'\n'; echo "${*:3}")
+    exit "$1"
+}
+
+# $1: current state
+# $2: want state
+function increase_prio() {
+    REPLY=$1
+    if (( NAGIOS_STATUS_PRIO_TR[$2] > NAGIOS_STATUS_PRIO_TR[$1] )); then
+        REPLY=$2
+    fi
+}
+
+function get_cmd() {
+    local cmd=( ${SUDO_USER:+sudo -n -u "$SUDO_USER"} "$@" )
+    local sshopts sshargs ret
+    if [[ -n $SSH_CMD || -n $SSH_HOST ]]; then
+        printf -v sshargs "%q " "${cmd[@]}"
+        if [[ -n $SSH_CMD ]]; then
+            # custom ssh command: it is up to the caller to properly escape args
+            # and handle ssh options like identity, port, user, connect timeout
+            cmd=( $SSH_CMD -- "$sshargs" )
+        elif [[ -n $SSH_HOST ]]; then
+            cmd=(
+                ssh ${SSH_IDENTITY:+-i "$SSH_IDENTITY"} ${SSH_USER:+-l "$SSH_USER"}
+                ${SSH_PORT:+-p "$SSH_PORT"} -q -C -T -o StrictHostKeyChecking=no
+                -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey
+                ${TIMEOUT:+-o "ConnectTimeout=$TIMEOUT"} "$SSH_HOST" -- "$sshargs"
+            )
+        fi
+    fi
+    REPLY=$( "${cmd[@]}" ); ret=$?
+    echo "$REPLY"
+    return "$ret"
+}
+
+get_bash() {
+    # sudo must be treated when writing bash script
+    SUDO_USER= get_cmd bash
+}
+
+function get_smart() {
+    local smartctl=( ${SUDO_USER:+sudo -n -u "$SUDO_USER"} smartctl )
+    local disks=()
+    local i status
+
+    if [[ $IS_REGEX == 1 ]]; then
+        disks+=( $("${smartctl[@]}" --scan |awk '{print $1}' |grep -E "$DEVICE") )
+        (( ${#disks[@]} == 0 )) && return 1
+    else
+        disks+=( "$DEVICE" )
+    fi
+
+    for i in "${disks[@]}"; do
+        status=$("${smartctl[@]}" -H "$i" |sed -nre 's,.*(Health Status|overall-health self-assessment test result): (.+),\2,p')
+        printf '%s\t%s\n' "$i" "$status"
+    done
+    return 0
+}
+
+function reply_get_smart() {
+    local OIFS=$IFS
+    local IFS=$'\n'
+    REPLY=($({
+        echo ${ENV:+"export $ENV"}
+        echo 'export LC_ALL=C'
+        declare -p DEVICE IS_REGEX SUDO_USER
+        declare -f get_smart
+        echo get_smart
+    } |IFS=$OIFS get_bash))
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        # common
+        -d|--device) DEVICE=$2; shift ;;
+        -r|--regex) IS_REGEX=$2; shift ;;
+        -S|--sudo-user) SUDO_USER=$2; shift ;;
+        -E|--bash-env) ENV=$2; shift ;;
+        -h|--help) nagios_exit_usage 3 ;;
+        # ssh
+        -s|--ssh) SSH_CMD=$2; shift ;;
+        -H|--host) SSH_HOST=$2; shift ;;
+        -u|--user) SSH_USER=$2; shift ;;
+        -p|--port) SSH_PORT=$2; shift ;;
+        -i|--identity) SSH_IDENTITY=$2; shift ;;
+        -t|--timeout) TIMEOUT=$2; shift ;;
+    esac
+    shift
+done
+
+[[ -z $IS_REGEX ]] && IS_REGEX=1
+
+if [[ $IS_REGEX != 0 && $IS_REGEX != 1 ]]; then
+    nagios_die 3 'Invalid regex flag, 0 or 1 expected'
+fi
+if [[ -z $DEVICE ]]; then
+    [[ $IS_R$1EGEX == 0 ]] && nagios_die 3 'Device required'
+    DEVICE=^
+fi
+if [[ -n $TIMEOUT && -n ${TIMEOUT//[0-9]} ]]; then
+    nagios_die 3 'Invalid SSH connect timeout, integer expected'
+fi
+if [[ -n $SSH_IDENTITY && ! -r $SSH_IDENTITY ]]; then
+    nagios_die 3 'Cannot read SSH identity file'
+fi
+
+reply_get_smart
+ret=$?
+
+if [[ ( -n $SSH_CMD || -n $SSH_HOST ) ]] && (( ret == 255 )); then
+    nagios_die 3 'SSH connect failed'
+fi
+
+if [[ -n $IS_REGEX ]] && (( ret == 1 )); then
+    nagios_die 3 'No disk mathing given pattern'
+fi
+
+if (( ret != 0 )); then
+    nagios_die 3 'Failed to get smart data'
+fi
+
+status=0
+message=
+
+for i in "${REPLY[@]}"; do
+    IFS=$'\t' set -- $i
+
+    if [[ -z $2 ]]; then
+        increase_prio "$status" 3; status=$REPLY
+        message="**$1 <unknown>**${message:+, $message}"
+    elif [[ $2 != PASSED && $2 != OK ]]; then
+        increase_prio "$status" 2; status=$REPLY
+        message="**$1 $2**${message:+, $message}"
+    else
+        message+="${message:+, }$1 $2"
+    fi
+done
+
+nagios_die "$status" "SMART status: $message"
