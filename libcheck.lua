@@ -680,13 +680,17 @@ function lc.oid2string(oid, first_is_length)
     return out
 end
 
-function lc.worsen_status(current_status, other_status)
-    if lc.status_prio[other_status] >
-       lc.status_prio[current_status] then
+function lc.worsen_status(current_status, other_status, _reverse)
+    local m = _reverse and -1 or 1
+    if lc.status_prio[other_status] * m >
+       lc.status_prio[current_status] * m then
         return other_status
-    else
-        return current_status
     end
+    return current_status
+end
+
+function lc.improve_status(current_status, other_status)
+    return lc.worsen_status(current_status, other_status, true)
 end
 
 lc.opts = {
