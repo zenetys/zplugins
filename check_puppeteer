@@ -46,6 +46,7 @@ function exitUsage() {
         '  -T, --max-time SECONDS   Overall timeout in seconds\n' +
         '  -e, --set NAME VALUE     Make a key/value available in the scenario\n' +
         '  -o, --screenshot DIR     Take screenshot after scenario run\n' +
+        '  -B, --browser-bin        Custom path to Chrome binary, eg: headless_shell\n' +
         '  -X, --no-sandbox         Run headless Chrome with --no-sandbox\n' +
         '  -v, --verbose            Increase verbosity\n' +
         '  -h, --help               Display this help\n' +
@@ -65,6 +66,7 @@ function parseOptions() {
         timeout: 10,
         verbose: 0,
         vars: {},
+        browserBin: undefined, // default browser bundled with puppeteer
         browserArgs: [],
     };
     for (let i = 2; i < process.argv.length; i++) {
@@ -94,6 +96,9 @@ function parseOptions() {
         else if ((process.argv[i] == '-o' || process.argv[i] == '--screenshot') &&
                  i < process.argv.length - 1)
             opts.screenshotDir = process.argv[++i];
+        else if ((process.argv[i] == '-B' || process.argv[i] == '--browser-bin') &&
+                 i < process.argv.length - 1)
+            opts.browserBin = process.argv[++i];
         else if (process.argv[i] == '-X' || process.argv[i] == '--no-sandbox')
             opts.browserArgs.push('--no-sandbox');
         else if (process.argv[i] == '-v' || process.argv[i] == '--verbose')
@@ -178,8 +183,11 @@ const scenario = require(ctx.opts.scenario);
 
 (async function main() {
     /* open browser */
+    const launchOpts = { args: ctx.opts.browserArgs };
+    if (ctx.opts.browserBin)
+        launchOpts.executablePath = ctx.opts.browserBin;
     try {
-        ctx.browser = await puppeteer.launch({ args: ctx.opts.browserArgs });
+        ctx.browser = await puppeteer.launch(launchOpts);
         ctx.page = await ctx.browser.newPage();
         ctx.page.setDefaultTimeout(ctx.opts.timeout * 1000);
         await ctx.page.setViewport({ width: 1700, height: 900 });
