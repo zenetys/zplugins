@@ -1,0 +1,261 @@
+#!/usr/bin/env node
+
+const ctx = {};
+const nagios = {
+    state: {
+        ok: 0,
+        warning: 1,
+        critical: 2,
+        unknown: 3,
+    },
+    stateName: function (state) {
+        const names = [ 'OK', 'WARNING', 'CRITICAL', 'UNKNOWN' ];
+        return names[state];
+    },
+}
+
+function shortError(error) {
+    var out = error.toString();
+    var nl = out.indexOf('\n');
+    if (nl != -1)
+        out = out.substr(0, nl);
+    return out;
+}
+
+function die(state, output, error) {
+    ctx.state = state;
+    ctx.output = output;
+    if (error) {
+        console.error('Caught:', error);
+        ctx.output += ' - ' + shortError(error);
+    }
+    process.exit();
+}
+
+function exitUsage() {
+    const progname = process.argv[1].replace(/.*\//, '');
+    process.stdout.write('Usage: ' + progname + ' -s|-S SCENARIO [OPTION...]\n' +
+        'Nagios plugin to run Puppeteer web scenarios\n' +
+        '\n' +
+        'Available options:\n' +
+        '  -s, --scenario FILE      Scenario to run\n' +
+        '  -S, --script FILE        Scenario to run in script mode\n' +
+        '  -w, --warning SECONDS    Run time warning threshold in seconds\n' +
+        '  -c, --critical SECONDS   Run time critical threshold in seconds\n' +
+        '  -t, --timeout SECONDS    Default page timeout in seconds\n' +
+        '  -T, --max-time SECONDS   Overall timeout in seconds\n' +
+        '  -e, --set NAME VALUE     Make a key/value available in the scenario\n' +
+        '  -o, --screenshot DIR     Take screenshot after scenario run\n' +
+        '  -X, --no-sandbox         Run headless Chrome with --no-sandbox\n' +
+        '  -v, --verbose            Increase verbosity\n' +
+        '  -h, --help               Display this help\n' +
+        '\n' +
+        'When run in script mode with option -S or --script, Nagios plugin\n' +
+        'output gets written to stderr, so that stdout is free to use for\n' +
+        'dumping extracted data. The goal is to be able to use this script as a\n' +
+        'Puppeteer launcher for extracting data in web pages.\n' +
+        '\n' +
+        'The option -o or --screenshot saves a screenshot in the given directory\n' +
+        'at the end of the scenario, whether it suceeded or failed.\n');
+    process.exit(nagios.state.unknown);
+}
+
+function parseOptions() {
+    var opts = {
+        timeout: 10,
+        verbose: 0,
+        vars: {},
+        browserArgs: [],
+    };
+    for (let i = 2; i < process.argv.length; i++) {
+        if ((process.argv[i] == '-s' || process.argv[i] == '--scenario') &&
+            i < process.argv.length - 1)
+            opts.scenario = process.argv[++i];
+        else if ((process.argv[i] == '-S' || process.argv[i] == '--script') &&
+            i < process.argv.length - 1) {
+            opts.scenario = process.argv[++i];
+            opts.scriptMode = true;
+        }
+        else if ((process.argv[i] == '-w' || process.argv[i] == '--warning') &&
+                 i < process.argv.length - 1)
+            opts.warning = process.argv[++i];
+        else if ((process.argv[i] == '-c' || process.argv[i] == '--critical') &&
+                 i < process.argv.length - 1)
+            opts.critical = process.argv[++i];
+        else if ((process.argv[i] == '-t' || process.argv[i] == '--timeout') &&
+                 i < process.argv.length - 1)
+            opts.timeout = process.argv[++i];
+        else if ((process.argv[i] == '-T' || process.argv[i] == '--max-time') &&
+                 i < process.argv.length - 1)
+            opts.maxTime = process.argv[++i];
+        else if ((process.argv[i] == '-e' || process.argv[i] == '--set') &&
+                 i < process.argv.length - 2)
+            opts.vars[process.argv[++i]] = process.argv[++i];
+        else if ((process.argv[i] == '-o' || process.argv[i] == '--screenshot') &&
+                 i < process.argv.length - 1)
+            opts.screenshotDir = process.argv[++i];
+        else if (process.argv[i] == '-X' || process.argv[i] == '--no-sandbox')
+            opts.browserArgs.push('--no-sandbox');
+        else if (process.argv[i] == '-v' || process.argv[i] == '--verbose')
+            opts.verbose++;
+        else if (process.argv[i].charAt(0) == '-') {
+            for (let j = 1; j < process.argv[i].length; j++) {
+                let c = process.argv[i].charAt(j);
+                switch (c) {
+                    case 'X': opts.browserArgs.push('--no-sandbox'); break;
+                    case 'v': opts.verbose++; break;
+                    default: exitUsage();
+                }
+            }
+        }
+        else
+            exitUsage();
+    }
+    if (!opts.scenario)
+        exitUsage();
+    if (opts.scenario.charAt(0) != '/')
+        opts.scenario = process.cwd() + '/' + opts.scenario;
+    return opts;
+}
+
+function onRequest(request) {
+    if (ctx.opts.verbose < 2)
+        return;
+    console.error('Request> %s %s', request.method(), request.url());
+    if (ctx.opts.verbose >= 3) {
+        const headers = request.headers();
+        console.error('..headers:', headers);
+        const data = request.postData();
+        if (data !== undefined)
+            console.error('..data:', data);
+    }
+}
+
+function onResponse(response) {
+    if (ctx.opts.verbose < 2)
+        return;
+    console.error('Response> %s %s => %d', response.request().method(),
+        response.url(), response.status());
+    if (ctx.opts.verbose >= 3) {
+        const headers = response.headers();
+        console.error('..headers:', headers);
+    }
+}
+
+function onConsole(message) {
+    if (ctx.opts.verbose >= 3)
+        console.error('Console>', message.text());
+}
+
+ctx.opts = parseOptions();
+if (ctx.opts.verbose >= 1)
+    console.error('Options>', ctx.opts);
+
+ctx.steps = [];
+ctx.step = function (description) {
+    this.steps.push(description);
+    if (ctx.opts.verbose >= 1)
+        console.error('Step> at', Date.now()/1000, '-', description);
+};
+
+process.on('exit', function () {
+    ctx.state ??= nagios.state.unknown;
+    ctx.output ??= 'No output!';
+    if (ctx.perfdata !== undefined)
+        ctx.output += '|' + ctx.perfdata;
+    process.exitCode = ctx.state;
+    var stream = ctx.opts.scriptMode ? 'stderr' : 'stdout';
+    process[stream].write(`PPTR ${nagios.stateName(ctx.state)} - ${ctx.output}\n`);
+});
+
+process.on('uncaughtException', (e) => {
+    die(nagios.state.unknown, 'Uncaught exception!', e) });
+process.on('unhandledRejection', (e) => {
+    die(nagios.state.unknown, 'Unhandled rejection!', e) });
+
+const puppeteer = require('puppeteer');
+const scenario = require(ctx.opts.scenario);
+
+(async function main() {
+    /* open browser */
+    try {
+        ctx.browser = await puppeteer.launch({ args: ctx.opts.browserArgs });
+        ctx.page = await ctx.browser.newPage();
+        ctx.page.setDefaultTimeout(ctx.opts.timeout * 1000);
+        await ctx.page.setViewport({ width: 1700, height: 900 });
+    }
+    catch (e) {
+        die(nagios.state.unknown, 'Browser init failed!', e);
+    }
+
+    ctx.page.on('request', onRequest);
+    ctx.page.on('response', onResponse);
+    ctx.page.on('console', onConsole);
+
+    /* start measure scenario time */
+    let maxTimer = null;
+    let time = Date.now();
+    let scenarioError;
+
+    try {
+        const runners = [ scenario(ctx) ];
+        if (ctx.opts.maxTime) {
+            runners.push(new Promise((resolve, reject) => {
+                maxTimer = setTimeout(reject, ctx.opts.maxTime * 1000,
+                    Error(`Aborted by overall timeout after ${ctx.opts.maxTime}s`));
+            }));
+        }
+        await Promise.race(runners);
+    }
+    catch (e) {
+        scenarioError = e;
+    }
+
+    /* end measure scenario time */
+    time = (Date.now() - time) / 1000;
+    clearTimeout(maxTimer);
+
+    /* to take a screenshot */
+    try {
+        if (ctx.opts.screenshotDir) {
+            const screenshotFile = ctx.opts.screenshotDir + '/' +
+                process.argv[1].replace(/.*\//, '') + '.' +
+                ctx.opts.scenario.replace(/.*\//, '') + '.last.png';
+            await ctx.page.screenshot({ path: screenshotFile });
+        }
+    }
+    catch {
+        console.error('Screenshot failed:', error);
+    }
+
+    /* release the browser */
+    try { await ctx.browser.close(); }
+    catch { /* ignore*/ }
+
+    /* die here if scenario has failed */
+    if (scenarioError) {
+        let message = 'Scenario failed';
+        if (ctx.steps.length > 0)
+            message += ` at step #${ctx.steps.length}: ${ctx.steps.slice(-1)[0]}`;
+        die(nagios.state.critical, message, scenarioError);
+    }
+
+    /* compute exit state from measured time */
+    if (ctx.opts.critical != undefined && time >= ctx.opts.critical) {
+        ctx.state = nagios.state.critical;
+        errMark = '**';
+    }
+    else if (ctx.opts.warning !== undefined && time >= ctx.opts.warning) {
+        ctx.state = nagios.state.warning;
+        errMark = '**';
+    }
+    else {
+        ctx.state = nagios.state.ok;
+        errMark = '';
+    }
+
+    /* build output */
+    ctx.output = `Scenario success, run time ${errMark}${time}s${errMark}`;
+    ctx.perfdata = 'time=' + time + 's;' + (ctx.opts.warning ?? '') + ';' +
+        (ctx.opts.critical ?? '');
+})();
