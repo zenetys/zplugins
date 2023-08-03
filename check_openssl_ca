@@ -90,7 +90,7 @@ function get_openssl_ca_index() {
             ${SSH_IDENTITY:+-i "$SSH_IDENTITY"} ${SSH_USER:+-l "$SSH_USER"}
             ${SSH_PORT:+-p "$SSH_PORT"} -q -C -T -o StrictHostKeyChecking=no
             -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey
-            -o "ConnectTimeout=$TIMEOUT"
+            ${TIMEOUT:+-o "ConnectTimeout=$TIMEOUT"}
         )
         printf -v sshargs "%q " "${cmd[@]}"
         cmd=( ssh "${sshopts[@]}" "$SSH_HOST" -- "$sshargs" )
