@@ -213,25 +213,25 @@ done < <(echo "$openssl_ca_index" |sed -re 's,\t,\x16,g' |sort -t $'\x16' -k 2,2
 
 if (( ${#detail_critical[@]} > 0 )); then
     cert=cert; (( ${#detail_critical[@]} > 1 )) && cert+=s
-    output+="${output:+, }${#detail_critical[@]} $cert expire <= ${CRITICAL}d"
+    output+="${output:+ }${#detail_critical[@]} $cert expire <= ${CRITICAL}d"
     (( VERBOSE > 1 )) && output+=": $info_critical"
     output+=.
 fi
 if (( ${#detail_warning[@]} > 0 )); then
     cert=cert; (( ${#detail_warning[@]} > 1 )) && cert+=s
-    output+="${output:+, }${#detail_warning[@]} $cert expire <= ${WARNING}d"
+    output+="${output:+ }${#detail_warning[@]} $cert expire <= ${WARNING}d"
     (( VERBOSE > 1 )) && output+=": $info_warning"
     output+=.
 fi
 if (( ${#detail_expired[@]} > 0 )); then
     cert=cert; (( ${#detail_expired[@]} > 1 )) && cert+=s
-    output+="${output:+, }${#detail_expired[@]} $cert expired not revoked"
+    output+="${output:+ }${#detail_expired[@]} $cert expired not revoked"
     (( VERBOSE > 1 )) && output+=": $info_expired"
     output+=.
 fi
 if (( ${#detail_unknown[@]} > 0 )); then
     cert=cert; (( ${#detail_unknown[@]} > 1 )) && cert+=s
-    output+="${output:+, }${#detail_unknown[@]} $cert unknown"
+    output+="${output:+ }${#detail_unknown[@]} $cert unknown"
     (( VERBOSE > 1 )) && output+=": $info_unknown"
     output+=.
 fi
