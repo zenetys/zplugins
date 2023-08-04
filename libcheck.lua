@@ -244,6 +244,12 @@ function lc.die(code, message)
     lc_meta.__gc()
 end
 
+-- Convenience wrappers to lc.die()
+function lc.die_unkn(...) lc.die(lc.UNKNOWN, ...) end
+function lc.die_crit(...) lc.die(lc.CRITICAL, ...) end
+function lc.die_warn(...) lc.die(lc.WARNING, ...) end
+function lc.die_ok(...) lc.die(lc.OK, ...) end
+
 -- Compute the path of the cache directory and create it. On failure, this
 -- function make the program die with an UNKNOWN status.
 --
