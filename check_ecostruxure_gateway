@@ -1,0 +1,334 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+-- Plugin uses a shared cache, Nagios CC should look like:
+-- check_ecostruxure_gateway \
+--     --cachebase /dev/shm/nagios-plugins-cache \
+--     --cacheid '$HOSTADDRESS$' \
+--     --ttl 300 \
+--     --lock-max-wait-time 10
+--     ...
+
+lc = require 'libcheck'
+lp = require 'libperfdata'
+ll = require 'liblock'
+curl = require 'lcurl'
+ZCurl = require 'libzcurl'
+lfs = require 'lfs'
+
+lc.checkname = 'ECOSTRUXURE'
+lc.shortdescr = 'Check devices managed by EcoStruxure IT Gateway'
+lc.progtype = 'local'
+
+lc.optsdef = {
+    { short = 'H', long = 'hostname', arg = true, required = true, help = '' },
+    { short = 'n', long = 'username', arg = true, required = true, help = 'Authentication username' },
+    { short = 'p', long = 'password', arg = true, required = true, help = 'Authentication password' },
+    { short = 'y', long = 'device-type', arg = true, help = 'Device type' },
+    { short = 'd', long = 'device-label', arg = true, help = 'Device label' },
+    { short = 's', long = 'sensor-label', arg = true, help = 'Sensor label' },
+    { short = 'w', long = 'warning', arg = true, help = 'Warning threshold (for sensors with value)' },
+    { short = 'c', long = 'critical', arg = true, help = 'Critical threshold (for sensors with value)' },
+    { short = 'r', long = 'reverse-threshold', arg = true, call = lc.setter_opt_iboolean, help = 'Reverse thresholds (not for ranges)' },
+    { short = 'e', long = 'expect', arg = true, help = 'Expected pattern (for sensors with state)' },
+    { short = 'R', long = 'netrc', arg = true, call = lc.setter_opt_iboolean, help = 'Enable ~/.netrc' },
+    { short = 't', long = 'timeout', arg = true, call = lc.setter_opt_number, help = 'Fetch timeout (s)' },
+    { short = 'T', long = 'ttl', arg = true, call = lc.setter_opt_number, help = 'Cache TTL in seconds' },
+    { short = 'k', long = 'lock-max-wait-time', arg = true, call = lc.setter_opt_number, help = 'Max time (s) to wait for the lock' },
+}
+
+lc.init_opts()
+
+-- defaults
+if not lc.opts.cacheid then lc.opts.cacheid = lc.opts.hostname end
+if not lc.opts.reverse_threshold then lc.opts.reverse_threshold = 0 end
+if not lc.opts.timeout then lc.opts.timeout = 10 end
+if not lc.opts.netrc then lc.opts.netrc = 0 end
+if not lc.opts.ttl then lc.opts.ttl = 60*5 end
+if not lc.opts.lock_max_wait_time then lc.opts.lock_max_wait_time = 10 end
+
+-- make number thresholds inclusives in nagios ranges
+if tonumber(lc.opts.warning) ~= nil then
+    if lc.opts.reverse_threshold == 1 then lc.opts.warning = '@~:'..lc.opts.warning
+    else lc.opts.warning = '@'..lc.opts.warning..':~' end
+end
+if tonumber(lc.opts.critical) ~= nil then
+    if lc.opts.reverse_threshold == 1 then lc.opts.critical = '@~:'..lc.opts.critical
+    else lc.opts.critical = '@'..lc.opts.critical..':~' end
+end
+
+lc.init_cache()
+
+data = {
+    alarms = {
+        url = '/gateway/rest/alarms/count?activeOnly=true',
+        file = lc.cachedir..'/alarms.json',
+    },
+    devices = {
+        url = '/gateway/rest/devices',
+        file = lc.cachedir..'/devices.json',
+    },
+    sensors = {
+        url = '/gateway/rest/sensors',
+        file = lc.cachedir..'/sensors.json',
+    },
+}
+
+lock_file = lc.cachedir..'/_plugin.lock'
+lock = ll.new(lock_file)
+
+function get_check_cached_data()
+    local mtime, err
+    for _, v in pairs(data) do
+        mtime, err = lfs.attributes(v.file, 'modification')
+        if err then return false, err end -- assume file does not exist
+        if mtime + lc.opts.ttl < os.time() then return false, 'Cache expired' end
+        v.root, err = lc.load_json(v.file)
+        if err then return false, err end -- eg: json parse failed
+        if type(v.root) ~= 'table' then return false, 'Invalid data' end
+    end
+    return true, nil
+end
+
+function fetch_and_cache_data()
+    local zcurl = ZCurl:new({
+        [curl.OPT_SSL_VERIFYPEER] = 0,
+        [curl.OPT_SSL_VERIFYHOST] = 0,
+        [curl.OPT_TIMEOUT] = lc.opts.timeout,
+        [curl.OPT_VERBOSE] = lc.opts.debug,
+        [curl.OPT_FOLLOWLOCATION] = true,
+        [curl.OPT_FAILONERROR] = true,
+        [curl.OPT_NETRC] = lc.opts.netrc,
+        [curl.OPT_COOKIEFILE] = '', -- in memory cookies
+        [curl.OPT_WRITEFUNCTION] = ZCurl._write_quiet,
+    })
+    local success, err
+    local has_login = false
+    local teardown = function ()
+        if has_login then
+            -- logout
+            zcurl:resetopts()
+            zcurl:perform({
+                [curl.OPT_CUSTOMREQUEST] = 'DELETE',
+                [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/session',
+            })
+        end
+        -- close handles
+        zcurl:close()
+        for _, v in pairs(data) do
+            if v.handle then v.handle:close() end
+        end
+    end
+
+    -- login
+    success, err = zcurl:perform({
+        [curl.OPT_CUSTOMREQUEST] = 'POST',
+        [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/session',
+        [curl.OPT_HTTPHEADER] = { 'content-type: application/json' },
+        [curl.OPT_USERNAME] = lc.opts.username,
+        [curl.OPT_PASSWORD] = lc.opts.password,
+    })
+    if not success then teardown(); lc.die_unkn(err) end
+    has_login = true
+
+    -- fetch data
+    for _, v in pairs(data) do
+        v.handle, err = io.open(v.file, 'w+b')
+        if not v.handle then teardown(); lc.die_unkn('Cannot save data: '..err) end
+        zcurl:resetopts()
+        success, err = zcurl:perform({
+            [curl.OPT_CUSTOMREQUEST] = 'GET',
+            [curl.OPT_URL] = 'https://'..lc.opts.hostname..v.url,
+            [curl.OPT_WRITEFUNCTION] = v.handle,
+        })
+        if not success then teardown(); lc.die_unkn(err) end
+    end
+    teardown()
+end
+
+-- Data is shared between multiple instances running with the same
+-- cachebase and cacheid. To make it easier, we use a single exclusive
+-- lock during the whole read/write operation. We give it a chance
+-- to wait/retry during a few seconds (option -k/--lock-max-wait-time).
+table.insert(lc.on_exit_handlers, 1, function() lock:unlock() end)
+if not lock:wlock(lc.opts.lock_max_wait_time / 0.2, 0.2) then
+    lc.die_unkn('Lock is busy')
+end
+
+success, err = get_check_cached_data()
+if not success then
+    fetch_and_cache_data()
+    success, err = get_check_cached_data()
+    if not success then lc.die_unkn('Failed to get data - '..err) end
+end
+
+lock:unlock()
+
+--
+
+function jvalue(x, fallback)
+    if x == lc.cjson.null then return fallback end
+    return x
+end
+
+function lookup_sensor(device_type, device_label, sensor_label)
+    for i = 1, #data.sensors.root.items do
+        if data.sensors.root.items[i].parents and #data.sensors.root.items[i].parents > 0 and
+           data.sensors.root.items[i].parents[1].type == device_type and
+           data.sensors.root.items[i].parents[1].label == device_label and
+           data.sensors.root.items[i].label == sensor_label then
+            return data.sensors.root.items[i]
+        end
+    end
+    return nil
+end
+
+function lookup_device(device_type, device_label)
+    for i = 1, #data.devices.root.items do
+        if data.devices.root.items[i].type == device_type and
+           data.devices.root.items[i].label == device_label then
+            return data.devices.root.items[i]
+        end
+    end
+    return nil
+end
+
+function plugin_mode_device_sensor()
+    local sensor = lookup_sensor(lc.opts.device_type, lc.opts.device_label, lc.opts.sensor_label)
+    if not sensor then
+        lc.die_unkn(('Sensor not found: %s, %s, %s'):format(
+            lc.opts.device_type, lc.opts.device_label, lc.opts.sensor_label))
+    end
+
+    -- Plugin status and output based on sensor status
+    -- Note: I don't know the possibles values except for OK
+    local sensor_status = jvalue(sensor.status)
+    local sensor_status_output = tostring(sensor_status)
+    local sensor_status_flag = ''
+    if not sensor_status then
+        sensor_status_flag = '**'
+        lc.exit_code = lc.UNKNOWN
+    else
+        sensor_status_output = sensor_status_output:upper()
+        if sensor_status_output == 'OK' then
+            lc.exit_code = lc.OK
+        elseif sensor_status_output:find('WARN') then
+            sensor_status_flag = '**'
+            lc.exit_code = lc.WARNING
+        else
+            sensor_status_flag = '**'
+            lc.exit_code = lc.CRITICAL
+        end
+    end
+
+    if sensor_status then sensor_status_output = "'"..sensor_status_output.."'" end
+    lc.exit_message = ("Sensor '%s', %sstatus %s%s"):format(jvalue(sensor.label, '?sensor'),
+        sensor_status_flag, sensor_status_output, sensor_status_flag)
+
+    -- Plugin status and output based on sensor text value and given expected pattern
+    local sensor_state = jvalue(sensor.currentSensorValue.stateValue)
+    local sensor_state_flag = ''
+    if lc.opts.expect then
+        if not sensor_state then
+            sensor_state_flag = '**'
+            lc.exit_code = lc.worsen_status(lc.exit_code, lc.UNKNOWN)
+        elseif not sensor_state:find('^'..lc.opts.expect..'$') then
+            sensor_state_flag = '**'
+            lc.exit_code = lc.worsen_status(lc.exit_code, lc.CRITICAL)
+        end
+    end
+    if sensor_state or lc.opts.expect then
+        sensor_state_output = tostring(sensor_state)
+        if sensor_state then sensor_state_output = "'"..sensor_state_output.."'" end
+        lc.exit_message = lc.exit_message..(", %sstate %s%s"):format(
+            sensor_state_flag, sensor_state_output, sensor_state_flag)
+    end
+
+    -- Plugin status and output based on sensor numeric value and given thresholds
+    local sensor_value = jvalue(sensor.currentSensorValue.numericValue)
+    if sensor_value or lc.opts.warning or lc.opts.critical then
+        local sensor_unit = jvalue(sensor.currentSensorValue.unitsLabel, ''):gsub('[^%w%%]', '')
+        if sensor_unit == 'Numeric' then sensor_unit = '' end
+        local perfdata = {
+            { name = 'value', value = sensor_value, uom = sensor_unit,
+              warning = lc.opts.warning, critical = lc.opts.critical },
+        }
+        local perfdata_state = lp.compute_perfdata(perfdata)
+        local perfdata_format = lp.format_perfdata(perfdata)
+        local perfdata_output = lp.format_output(perfdata, '%s%s %s%s%s')
+        lc.exit_code = lc.worsen_status(lc.exit_code, perfdata_state)
+        lc.exit_message = lc.exit_message..', '..perfdata_output..'|'..perfdata_format
+    end
+end
+
+function plugin_mode_device()
+    local device = lookup_device(lc.opts.device_type, lc.opts.device_label)
+    if not device then
+        lc.die_unkn(('Device not found: %s, %s'):format(
+            lc.opts.device_type, lc.opts.device_label))
+    end
+
+    -- Plugin status and output based on device overall status
+    -- Note: I don't know the possibles values except for OK
+    local device_status = jvalue(device.status)
+    local device_status_output = tostring(device_status)
+    local device_status_flag = ''
+    if not device_status then
+        device_status_flag = '**'
+        lc.exit_code = lc.UNKNOWN
+    else
+        device_status_output = device_status_output:upper()
+        if device_status_output == 'OK' then
+            lc.exit_code = lc.OK
+        elseif device_status_output:find('WARN') then
+            device_status_flag = '**'
+            lc.exit_code = lc.WARNING
+        else
+            device_status_flag = '**'
+            lc.exit_code = lc.CRITICAL
+        end
+    end
+
+    if device_status then device_status_output = "'"..device_status_output.."'" end
+    lc.exit_message = ("%s %s, %sglobal status %s%s"):format(
+        jvalue(device.displayType, '?type'), jvalue(device.model, '?model'),
+        device_status_flag, device_status_output, device_status_flag)
+end
+
+function plugin_mode_alarms()
+    -- Note: Looks like countBySeverity is always present but severity keys won't if
+    -- there is no alarm. So far I have seen only WARNING and CRITICAL keys but I don't
+    -- know if we can get other values. Following ensure we always get at least WARNING
+    -- and CRITICAL in output and perfdata, though the order is undefined.
+    if not data.alarms.root.countBySeverity then data.alarms.root.countBySeverity = {} end
+    if not data.alarms.root.countBySeverity.WARNING then data.alarms.root.countBySeverity.WARNING = 0 end
+    if not data.alarms.root.countBySeverity.CRITICAL then data.alarms.root.countBySeverity.CRITICAL = 0 end
+    local message, perfdata, total = '', '', 0
+    lc.exit_code = lc.OK
+    for k, v in pairs(data.alarms.root.countBySeverity) do
+        local flag = ''
+        if k == 'WARNING' and v > 0 then flag = '**'; lc.exit_code = lc.worsen_status(lc.exit_code, lc.WARNING)
+        elseif k == 'CRITICAL' and v > 0 then flag = '**'; lc.exit_code = lc.worsen_status(lc.exit_code, lc.CRITICAL) end
+        message = message..(#message > 0 and ', ' or '')..('%s%d %s%s'):format(flag, v, k, flag)
+        perfdata = perfdata..(#perfdata > 0 and ' ' or '')..('%s=%d'):format(k, v)
+        total = total + v
+    end
+    if total == 0 then lc.exit_message = 'No active alarm|'..perfdata
+    else lc.exit_message = 'Active alarms: '..message..'|'..perfdata end
+end
+
+--
+
+if lc.opts.device_type and lc.opts.device_label then
+    if lc.opts.sensor_label then
+        plugin_mode_device_sensor()
+    else
+        plugin_mode_device()
+    end
+else
+    plugin_mode_alarms()
+end
