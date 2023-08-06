@@ -176,11 +176,9 @@ function LP.numfmt(n, to, from, base, max)
         local base = (UOM_BASE[to] or 1000)
         local u = 0 ; while n > base do n=n/base ; u=u+1 ; end
         return string.format(fp(n)..UOM_RMULT[u]..UOM_UNIT[to], n)
-    else
-        return nil -- error
     end
 
-    return n
+    return string.format(fp(n), n)..to
 end
 
 function LP.numbase(n)
