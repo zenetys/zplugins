@@ -47,16 +47,21 @@ function lc.mkdir_p(dir)
     end
 
     local to_create = dir:sub(1, 1) == '/' and '' or '.'
-    local ret, err
+    local ret, err, code
 
     for i in dir:gmatch('[^/]+') do
         to_create = to_create..'/'..i
-        ret = lfs.attributes(to_create, 'mode')
-        if ret == nil then
-            ret, err = lfs.mkdir(to_create)
-            if not ret then return nil, err end
-        elseif ret ~= 'directory' then
-            return nil, ret..' exists: '..to_create
+        ret, err, code = lfs.mkdir(to_create)
+        if not ret then
+            -- we could test for errno EEXIST code 17 but getting mkdir()
+            -- errno code (3rd returned value) is only available from
+            -- luafilesystem 1.7.0
+            if code and code ~= 17 then return nil, err end
+            -- anyway skip the error if we see a directory
+            ret = lfs.attributes(to_create, 'mode')
+            if not ret or ret ~= 'directory' then
+                return nil, err
+            end
         end
     end
     return true
