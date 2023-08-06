@@ -309,8 +309,9 @@ function LP.format_perfdata(perfdata)
     return s
 end
 
-function LP.format_output(perfdata)
+function LP.format_output(perfdata, fmt)
     -- build auto output from computed array
+    if not fmt then fmt = '%s%s: %s%s%s' end
     local s = ""
     local msg = {}
 
@@ -322,13 +323,19 @@ function LP.format_output(perfdata)
         local v = LP.numfmt(p.value, p.uom)
         local max = LP.numfmt(p.max)
 
-        local m = p.name .. ": " .. (v or 'nil')
+        local m_name = p.name
+        local m_value = (v or 'nil')
+        local m_extra = ''
+        local m_error = ''
+
         if (max and p.uom ~= '%') then
-            m = m .. "/" .. LP.numfmt(p.max, p.uom)
+            m_extra = "/" .. LP.numfmt(p.max, p.uom)
         end
         if (p.state ~= LP.STATE_OK) then
-            m = "**" .. m .. "**"
+            m_error = '**'
         end
+        local m = fmt:format(m_error, m_name, m_value, m_extra, m_error)
+
         if (p.state == nil) then
             table.insert(msg[LP.STATE_UNKNOWN], m)
         else
