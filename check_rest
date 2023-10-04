@@ -31,6 +31,7 @@ lc.optsdef = {
     { short = 'u', long = 'uom', arg = true, call = lc.setter_opt_array, help = 'Metric(s) uom' },
     { short = 'm', long = 'min', arg = true, call = lc.setter_opt_array, help = 'Metric(s) min' },
     { short = 'M', long = 'max', arg = true, call = lc.setter_opt_array, help = 'Metric(s) max' },
+    { short = 'x', long = 'null-value', arg = true, call = lc.setter_opt_array, help = 'Metric(s) null value' },
     { short = 't', long = 'timeout', arg = true, call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
     { short = 'R', long = 'netrc', arg = true, call = lc.setter_opt_iboolean, help = 'Enable ~/.netrc' },
     -- 0: CURL_NETRC_IGNORED, 1: CURL_NETRC_OPTIONAL
@@ -65,6 +66,7 @@ if not lc.opts.critical then lc.opts.critical = {} end
 if not lc.opts.uom then lc.opts.uom = {} end
 if not lc.opts.min then lc.opts.min = {} end
 if not lc.opts.max then lc.opts.max = {} end
+if not lc.opts.null_value then lc.opts.null_value = {} end
 if not lc.opts.timeout then lc.opts.timeout = 10 end
 if not lc.opts.netrc then lc.opts.netrc = 0 end
 
@@ -165,7 +167,12 @@ for i = 1, #lc.opts.label do
                 p.value = tonumber(value)
             else
                 lc.perr('Failed to run eval code: '..value)
-                p.value = nil
+                if lc.opts.null_value[i] then
+                    lc.perr('Using provided null-value: '..lc.opts.null_value[i])
+                    p.value = tonumber(lc.opts.null_value[i])
+                else
+                    p.value = nil
+                end
             end
         end
         table.insert(perfdata, p)
