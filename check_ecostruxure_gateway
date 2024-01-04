@@ -107,14 +107,18 @@ function fetch_and_cache_data()
         [curl.OPT_WRITEFUNCTION] = ZCurl._write_quiet,
     })
     local success, err
-    local has_login = false
+    local xsrf_token = nil
     local teardown = function ()
-        if has_login then
+        if xsrf_token then
             -- logout
             zcurl:resetopts()
             zcurl:perform({
                 [curl.OPT_CUSTOMREQUEST] = 'DELETE',
                 [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/session',
+                [curl.OPT_HTTPHEADER] = {
+                    'X-XSRF-TOKEN: '..xsrf_token,
+                    'Referer: https://'..lc.opts.hostname..'/gateway/'
+                },
             })
         end
         -- close handles
@@ -133,7 +137,16 @@ function fetch_and_cache_data()
         [curl.OPT_PASSWORD] = lc.opts.password,
     })
     if not success then teardown(); lc.die_unkn(err) end
-    has_login = true
+
+    -- find XSRF-TOKEN
+    for _, cookie_entry in ipairs(zcurl:getinfo(curl.INFO_COOKIELIST)) do
+        k,v = cookie_entry:match('.*\t([^\t]+)\t(.+)$')
+        if k == 'XSRF-TOKEN' then
+            xsrf_token = v
+            break
+        end
+    end
+    if not xsrf_token then teardown(); lc.die_unkn('No XSRF token!') end
 
     -- fetch data
     for _, v in pairs(data) do
@@ -144,6 +157,10 @@ function fetch_and_cache_data()
             [curl.OPT_CUSTOMREQUEST] = 'GET',
             [curl.OPT_URL] = 'https://'..lc.opts.hostname..v.url,
             [curl.OPT_WRITEFUNCTION] = v.handle,
+            [curl.OPT_HTTPHEADER] = {
+                'X-XSRF-TOKEN: '..xsrf_token,
+                'Referer: https://'..lc.opts.hostname..'/gateway/'
+            },
         })
         if not success then teardown(); lc.die_unkn(err) end
     end
