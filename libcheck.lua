@@ -120,6 +120,10 @@ function lc.pdump(object, text, level, tseen)
         if text ~= nil then
             lc.pdebug('#### '..text)
         end
+        if type(print_r) == 'function' then
+            print_r(object)
+            return
+        end
         level = 0
         tseen = {}
     end
