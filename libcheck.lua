@@ -497,7 +497,7 @@ function lc.init_opts()
     while i <= #arg do
         local optarg = arg[i]
         local optkey = optarg:gsub('^-*', '')
-        local optdef, optvalue
+        local optdef, optvalue, optignore
 
         if optarg == '--' then i = i + 1; break
         elseif arg2opt[optkey] then optdef = arg2opt[optkey]
@@ -506,20 +506,16 @@ function lc.init_opts()
         -- arg enabled by default
         if optdef.arg ~= false then
             i = i + 1
-            if arg[i] == '$' then optvalue = nil
+            if arg[i] == '$' then optignore = true
             else optvalue = arg[i] end
         else
             optvalue = true
         end
-
-        if optvalue ~= nil and optdef.call then
-            optvalue = optdef.call(lc, optdef, optvalue)
-            if optvalue == nil then
-                lc.die(lc.UNKNOWN, 'Invalid value for option '..optarg)
-            end
+        if not optignore then
+            if optdef.call then optvalue = optdef.call(lc, optdef, optvalue) end
+            if not optvalue then lc.die(lc.UNKNOWN, 'Invalid value for option '..optarg) end
+            lc.opts[optdef.key] = optvalue
         end
-
-        lc.opts[optdef.key] = optvalue
         i = i + 1
     end
 
