@@ -481,13 +481,11 @@ function lc.init_opts()
     local i = 1
 
     for k, v in ipairs(lc.optsdef) do
-        if v.long then
-            arg2opt[v.long] = v
-            if not v.key then v.key = lc.cindex(v.long) end
-        end
-        if v.short then
-            arg2opt[v.short] = v
-            if not v.key then v.key = lc.cindex(v.short) end
+        for _,o in ipairs({ 'long', 'short' }) do
+            if v[o] then
+                arg2opt[v[o]] = v
+                if not v.key then v.key = lc.cindex(v[o]) end
+            end
         end
     end
 
