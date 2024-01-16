@@ -123,7 +123,7 @@ local UOM_BASE = {
 
 -- coreutils command numfmt
 -- https://www.gnu.org/software/coreutils/manual/coreutils.html#numfmt-invocation
-function LP.numfmt(n, to, from, base, max)
+function LP.numfmt(n, to, from, base, max, to_raw)
     if (n == nil) then
         return nil
     end
@@ -169,8 +169,8 @@ function LP.numfmt(n, to, from, base, max)
     elseif (to == "c") then
         return string.format("%dc", n)
     elseif (to == "s") then
-        if (n > 1) then
-            return string.format("%.fs", n)
+        if (n > 1 or to_raw) then
+            return string.format("%.3fs", n)
         elseif (n > 0.001) then
             return string.format("%.fms", n*1000)
         else
@@ -180,7 +180,7 @@ function LP.numfmt(n, to, from, base, max)
         -- FIXME
     elseif (UOM_UNIT[to] ~= nil) then
         local base = (UOM_BASE[to] or 1000)
-        local u = 0 ; while n > base do n=n/base ; u=u+1 ; end
+        local u = 0 ; while not to_raw and n > base do n=n/base ; u=u+1 ; end
         return string.format(fp(n)..UOM_RMULT[u]..UOM_UNIT[to], n)
     end
 
@@ -298,19 +298,19 @@ function LP.compute_perfdata(perfdata)
     return state
 end
 
-function LP.format_perfdata(perfdata)
+function LP.format_perfdata(perfdata, raw)
     -- build perfdata from computed array
     local s = ""
     for _, p in pairs(perfdata) do
-        local v = LP.numfmt(p.value, p.uom)
+        local v = LP.numfmt(p.value, p.uom, nil, nil, nil, raw)
         local max = LP.numfmt(p.max)
         local n, b = LP.numbase(v)
 
         s = s .. "'" .. p.name .. "'=" .. (v or "U") .. ";"
-        s = s .. (LP.numfmt(p.warning, nil, nil, b, max) or "") .. ";"
-        s = s .. (LP.numfmt(p.critical, nil, nil, b, max) or "") .. ";"
-        s = s .. (LP.numfmt(p.min, nil, nil, b) or "") .. ";"
-        s = s .. (LP.numfmt(p.max, nil, nil, b) or "") .. " "
+        s = s .. (LP.numfmt(p.warning, nil, nil, b, max, raw) or "") .. ";"
+        s = s .. (LP.numfmt(p.critical, nil, nil, b, max, raw) or "") .. ";"
+        s = s .. (LP.numfmt(p.min, nil, nil, b, nil, raw) or "") .. ";"
+        s = s .. (LP.numfmt(p.max, nil, nil, b, nil, raw) or "") .. " "
     end
     return s
 end
