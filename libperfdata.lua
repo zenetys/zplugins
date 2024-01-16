@@ -139,7 +139,7 @@ function LP.numfmt(n, to, from, base, max)
 
                 if (t and uom and percent and max) then
                     -- transform percent to number
-                    n = (t*uom*max)
+                    n = (t*uom*max/100)
                 elseif (t and uom) then
                     n = (t*uom)
                 else
