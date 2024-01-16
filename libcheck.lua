@@ -215,7 +215,6 @@ function default_on_exit()
     print(output)
 
     lc.dump(lc.opts, 'Dump opts')
-    lc.dump(lc.cache, 'Dump cache')
 end
 
 -- Finalizer method that runs registered custom exit handlers in sequence.
