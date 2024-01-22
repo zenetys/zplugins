@@ -400,7 +400,7 @@ function lc.setter_opt_array(lc, opt, value)
     return lc.opts[opt.key]
 end
 
-function lc.setter_opt_kvarray(lc, opt, value)
+function lc.setter_opt_kv(lc, opt, value)
     if type(lc.opts[opt.key]) ~= 'table' then lc.opts[opt.key] = {} end
     -- value:gmatch('[^,]*') wont work on lua < 5.3.3
     for i in (value..','):gmatch('([^,]*),') do
