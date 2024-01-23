@@ -359,7 +359,7 @@ function lc.exit_usage()
             if #left > 0 then left = left..', ' end
             left = left..'--'..v.long
         end
-        flags = flags..(v.arg and 'V' or ' ')
+        flags = flags..(v.arg ~= false and 'V' or ' ')
         flags = flags..(v.required and 'R' or ' ')
         print(string.format('  %-25s %-5s %s', left, flags, v.help))
     end
@@ -415,44 +415,44 @@ function lc.init_type_snmp()
     lc.snmp = require 'snmp'
 
     table.insert(lc.optsdef,
-        { short = 'H', long = 'hostname', arg = true, required = true,
+        { short = 'H', long = 'hostname', required = true,
           help = 'Hostname or IP address' })
     table.insert(lc.optsdef,
-        { short = 'p', long = 'port', arg = true,
+        { short = 'p', long = 'port',
           call = lc.setter_opt_number,
           help = 'SNMP port number' })
     table.insert(lc.optsdef,
-        { short = 'P', long = 'protocol', arg = true,
+        { short = 'P', long = 'protocol',
           call = lc.setter_opt_snmp_protocol,
           help = 'SNMP protocol version: 1|2c|3' })
     table.insert(lc.optsdef,
-        { short = 'C', long = 'community', arg = true,
+        { short = 'C', long = 'community',
           help = 'SNMP community' })
     table.insert(lc.optsdef,
-        { short = 'e', long = 'retries', arg = true,
+        { short = 'e', long = 'retries',
           call = lc.setter_opt_number,
           help = 'Number of retries in SNMP requests' })
     table.insert(lc.optsdef,
-        { short = 't', long = 'timeout', arg = true,
+        { short = 't', long = 'timeout',
           call = lc.setter_opt_number,
           help = 'Seconds before connection times out' })
     table.insert(lc.optsdef,
-        { short = 'U', long = 'secname', arg = true,
+        { short = 'U', long = 'secname',
           help = 'SNMP v3 username' })
     table.insert(lc.optsdef,
-        { short = 'L', long = 'seclevel', arg = true,
+        { short = 'L', long = 'seclevel',
           help = 'SNMP v3 security level' })
     table.insert(lc.optsdef,
-        { short = 'a', long = 'authproto', arg = true,
+        { short = 'a', long = 'authproto',
           help = 'SNMP v3 authentification protocol: MD5|SHA' })
     table.insert(lc.optsdef,
-        { short = 'A', long = 'authpassword', arg = true,
+        { short = 'A', long = 'authpassword',
           help = 'SNMP v3 authentification password' })
     table.insert(lc.optsdef,
-        { short = 'x', long = 'privproto', arg = true,
+        { short = 'x', long = 'privproto',
           help = 'SNMP v3 privacy protocol: MD5|SHA' })
     table.insert(lc.optsdef,
-        { short = 'X', long = 'privpassword', arg = true,
+        { short = 'X', long = 'privpassword',
           help = 'SNMP v3 privacy password' })
 end
 
@@ -467,10 +467,10 @@ function lc.init_opts()
     if lc.progtype == 'snmp' then lc.init_type_snmp() end
 
     table.insert(lc.optsdef,
-        { long = 'cachebase', arg = true,
+        { long = 'cachebase',
           help = 'Set the root directory of the cache' })
     table.insert(lc.optsdef,
-        { short = 'I', long = 'cacheid', arg = true,
+        { short = 'I', long = 'cacheid',
           call = function (lc,o,v) return (v:gsub('[^%w/_]', '_')) end,
           help = 'Set the ID of the cache' })
     table.insert(lc.optsdef,
@@ -502,7 +502,8 @@ function lc.init_opts()
         elseif arg2opt[optkey] then optdef = arg2opt[optkey]
         else lc.die(lc.UNKNOWN, 'Invalid option '..optarg) end
 
-        if optdef.arg then
+        -- arg enabled by default
+        if optdef.arg ~= false then
             i = i + 1
             if arg[i] == '$' then optvalue = nil
             else optvalue = arg[i] end
