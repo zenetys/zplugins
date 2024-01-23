@@ -329,7 +329,7 @@ function LP.format_output(perfdata, fmt)
         local v = LP.numfmt(p.value, p.uom)
         local max = LP.numfmt(p.max)
 
-        local m_name = p.name
+        local m_name = p.label or p.name
         local m_value = (v or 'nil')
         local m_extra = ''
         local m_error = ''
