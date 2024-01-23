@@ -277,8 +277,8 @@ function LP.check_range(v, range, max)
     end
 end
 
-function LP.compute_perfdata(perfdata)
-    local state = LP.STATE_OK
+function LP.compute_perfdata(perfdata, initial_state)
+    local state = initial_state or LP.STATE_OK
     -- compute status from perfdata array
     for _, p in pairs(perfdata) do
         if (p.value == nil) then
