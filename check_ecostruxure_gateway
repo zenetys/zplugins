@@ -65,16 +65,20 @@ lc.init_cache()
 
 data = {
     alarms = {
-        url = '/gateway/rest/alarms/count?activeOnly=true',
+        url = '/gateway/rest/v1/alarms/count?active_only=true',
         file = lc.cachedir..'/alarms.json',
     },
     devices = {
-        url = '/gateway/rest/devices',
+        url = '/gateway/rest/v1/devices',
         file = lc.cachedir..'/devices.json',
+        post_data = '{}',
+        headers = { 'content-type: application/json' },
     },
     sensors = {
-        url = '/gateway/rest/sensors',
+        url = '/gateway/rest/v1/sensors',
         file = lc.cachedir..'/sensors.json',
+        post_data = '{}',
+        headers = { 'content-type: application/json' },
     },
 }
 
@@ -114,7 +118,7 @@ function fetch_and_cache_data()
             zcurl:resetopts()
             zcurl:perform({
                 [curl.OPT_CUSTOMREQUEST] = 'DELETE',
-                [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/session',
+                [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/v1/users/session',
                 [curl.OPT_HTTPHEADER] = {
                     'X-XSRF-TOKEN: '..xsrf_token,
                     'Referer: https://'..lc.opts.hostname..'/gateway/'
@@ -131,7 +135,7 @@ function fetch_and_cache_data()
     -- login
     success, err = zcurl:perform({
         [curl.OPT_CUSTOMREQUEST] = 'POST',
-        [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/session',
+        [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/v1/users/session',
         [curl.OPT_HTTPHEADER] = { 'content-type: application/json' },
         [curl.OPT_USERNAME] = lc.opts.username,
         [curl.OPT_PASSWORD] = lc.opts.password,
@@ -153,15 +157,22 @@ function fetch_and_cache_data()
         v.handle, err = io.open(v.file, 'w+b')
         if not v.handle then teardown(); lc.die_unkn('Cannot save data: '..err) end
         zcurl:resetopts()
-        success, err = zcurl:perform({
-            [curl.OPT_CUSTOMREQUEST] = 'GET',
+        local opts = {
+            [curl.OPT_CUSTOMREQUEST] = v.post_data and 'POST' or 'GET',
+            [curl.OPT_POSTFIELDS] = v.post_data,
             [curl.OPT_URL] = 'https://'..lc.opts.hostname..v.url,
             [curl.OPT_WRITEFUNCTION] = v.handle,
             [curl.OPT_HTTPHEADER] = {
                 'X-XSRF-TOKEN: '..xsrf_token,
                 'Referer: https://'..lc.opts.hostname..'/gateway/'
             },
-        })
+        }
+        if (v.headers) then
+            for _,h in ipairs(v.headers) do
+                table.insert(opts[curl.OPT_HTTPHEADER], h)
+            end
+        end
+        success, err = zcurl:perform(opts)
         if not success then teardown(); lc.die_unkn(err) end
     end
     teardown()
@@ -193,22 +204,22 @@ function jvalue(x, fallback)
 end
 
 function lookup_sensor(device_type, device_label, sensor_label)
-    for i = 1, #data.sensors.root.items do
-        if data.sensors.root.items[i].parents and #data.sensors.root.items[i].parents > 0 and
-           data.sensors.root.items[i].parents[1].type == device_type and
-           data.sensors.root.items[i].parents[1].label == device_label and
-           data.sensors.root.items[i].label == sensor_label then
-            return data.sensors.root.items[i]
+    for i = 1, #data.sensors.root.sensors do
+        if data.sensors.root.sensors[i].parents and #data.sensors.root.sensors[i].parents > 0 and
+           data.sensors.root.sensors[i].parents[1].type == device_type and
+           data.sensors.root.sensors[i].parents[1].label == device_label and
+           data.sensors.root.sensors[i].label == sensor_label then
+            return data.sensors.root.sensors[i]
         end
     end
     return nil
 end
 
 function lookup_device(device_type, device_label)
-    for i = 1, #data.devices.root.items do
-        if data.devices.root.items[i].type == device_type and
-           data.devices.root.items[i].label == device_label then
-            return data.devices.root.items[i]
+    for i = 1, #data.devices.root.inventories do
+        if data.devices.root.inventories[i].type == device_type and
+           data.devices.root.inventories[i].label == device_label then
+            return data.devices.root.inventories[i]
         end
     end
     return nil
@@ -317,16 +328,16 @@ function plugin_mode_device()
 end
 
 function plugin_mode_alarms()
-    -- Note: Looks like countBySeverity is always present but severity keys won't if
-    -- there is no alarm. So far I have seen only WARNING and CRITICAL keys but I don't
-    -- know if we can get other values. Following ensure we always get at least WARNING
-    -- and CRITICAL in output and perfdata, though the order is undefined.
-    if not data.alarms.root.countBySeverity then data.alarms.root.countBySeverity = {} end
-    if not data.alarms.root.countBySeverity.WARNING then data.alarms.root.countBySeverity.WARNING = 0 end
-    if not data.alarms.root.countBySeverity.CRITICAL then data.alarms.root.countBySeverity.CRITICAL = 0 end
+    -- Note: Looks like severities is always present but WARNING and CRITICAL entries
+    -- won't if there is no alarm. So far I have seen only WARNING and CRITICAL entries
+    -- but I don't know if we can get other values. Following ensure we always get at
+    -- least WARNING and CRITICAL in output and perfdata, though the order is undefined.
+    if not data.alarms.root.severities then data.alarms.root.severities = {} end
+    local by_severity = { WARNING = 0, CRITICAL = 0 }
+    for _,v in ipairs(data.alarms.root.severities) do by_severity[v.severity] = v.count end
     local message, perfdata, total = '', '', 0
     lc.exit_code = lc.OK
-    for k, v in pairs(data.alarms.root.countBySeverity) do
+    for k, v in pairs(by_severity) do
         local flag = ''
         if k == 'WARNING' and v > 0 then flag = '**'; lc.exit_code = lc.worsen_status(lc.exit_code, lc.WARNING)
         elseif k == 'CRITICAL' and v > 0 then flag = '**'; lc.exit_code = lc.worsen_status(lc.exit_code, lc.CRITICAL) end
