@@ -368,40 +368,40 @@ function lc.exit_usage()
     os.exit(0, false)
 end
 
-function lc.setter_opt_snmp_protocol(lc, opt, value)
+function lc.setter_opt_snmp_protocol(opt, value)
     if value == '1' then return snmp.SNMPv1
     elseif value == '2' or value:lower() == '2c' then return snmp.SNMPv2c
     elseif value == '3' then return snmp.SNMPv3 end
     return nil
 end
 
-function lc.setter_opt_number(lc, opt, value)
+function lc.setter_opt_number(opt, value)
     return tonumber(value)
 end
 
-function lc.setter_opt_percent_as_number(lc, opt, value)
+function lc.setter_opt_percent_as_number(opt, value)
     if string.sub(value, -1) == '%' then value = string.sub(value, 1, -2) end
     return tonumber(value)
 end
 
-function lc.setter_opt_boolean(lc, opt, value)
+function lc.setter_opt_boolean(opt, value)
     if value == '' or value == '0' then return false end
     return true
 end
 
-function lc.setter_opt_iboolean(lc, opt, value)
+function lc.setter_opt_iboolean(opt, value)
     if value == '' or value == '0' then return 0 end
     return 1
 end
 
-function lc.setter_opt_array(lc, opt, value)
+function lc.setter_opt_array(opt, value)
     if type(lc.opts[opt.key]) ~= 'table' then lc.opts[opt.key] = {} end
     -- value:gmatch('[^,]*') wont work on lua < 5.3.3
     for i in (value..','):gmatch('([^,]*),') do table.insert(lc.opts[opt.key], i) end
     return lc.opts[opt.key]
 end
 
-function lc.setter_opt_kv(lc, opt, value)
+function lc.setter_opt_kv(opt, value)
     if type(lc.opts[opt.key]) ~= 'table' then lc.opts[opt.key] = {} end
     -- value:gmatch('[^,]*') wont work on lua < 5.3.3
     for i in (value..','):gmatch('([^,]*),') do
@@ -472,7 +472,7 @@ function lc.init_opts()
           help = 'Set the root directory of the cache' })
     table.insert(lc.optsdef,
         { short = 'I', long = 'cacheid',
-          call = function (lc,o,v) return (v:gsub('[^%w/_]', '_')) end,
+          call = function (o,v) return (v:gsub('[^%w/_]', '_')) end,
           help = 'Set the ID of the cache' })
     table.insert(lc.optsdef,
         { short = 'h', long = 'help', arg = false,
@@ -512,7 +512,7 @@ function lc.init_opts()
             optvalue = true
         end
         if not optignore then
-            if optdef.call then optvalue = optdef.call(lc, optdef, optvalue) end
+            if optdef.call then optvalue = optdef.call(optdef, optvalue) end
             if not optvalue then lc.die(lc.UNKNOWN, 'Invalid value for option '..optarg) end
             lc.opts[optdef.key] = optvalue
         end
