@@ -364,6 +364,7 @@ function lc.exit_usage()
         print(string.format('  %-27s %-5s %s', left, flags, v.help))
     end
     print('\nV: options requires a value argument\nR: options is mandatory')
+    if lc.usage_notes then print('\n'..lc.usage_notes) end
     os.exit(0, false)
 end
 
