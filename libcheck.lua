@@ -361,7 +361,7 @@ function lc.exit_usage()
         end
         flags = flags..(v.arg ~= false and 'V' or ' ')
         flags = flags..(v.required and 'R' or ' ')
-        print(string.format('  %-25s %-5s %s', left, flags, v.help))
+        print(string.format('  %-27s %-5s %s', left, flags, v.help))
     end
     print('\nV: options requires a value argument\nR: options is mandatory')
     os.exit(0, false)
