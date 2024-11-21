@@ -26,6 +26,7 @@ lc.optsdef = {
     { short = 's', long = 'parameter', call = lc.setter_opt_kv, help = 'Replace ${key} by value in --post-data, format: key=value' },
     { short = 'l', long = 'label', call = lc.setter_opt_array, help = 'Metric(s) name' },
     { short = 'a', long = 'addon', help = 'Custom addon script to handle JSON data' },
+    { short = 'K', long = 'addon-insecure', call = lc.setter_opt_boolean, help = 'Do not restrict lua env in addon' },
     { short = 'w', long = 'warning', call = lc.setter_opt_array, help = 'Metric(s) warning' },
     { short = 'c', long = 'critical', call = lc.setter_opt_array, help = 'Metric(s) critical' },
     { short = 'u', long = 'uom', call = lc.setter_opt_array, help = 'Metric(s) uom' },
@@ -180,7 +181,7 @@ for i = 1, #lc.opts.label do
 end
 -- custom processing
 if lc.opts.addon ~= nil then
-    fn, err = loadfile(lc.opts.addon, nil, env_limited)
+    fn, err = loadfile(lc.opts.addon, nil, lc.opts.addon_insecure and _ENV or env_limited)
     if fn == nil then lc.die(lc.UNKNOWN, 'Failed to load addon script: '..err) end
     success, err = pcall(fn)
     if not success then lc.die(lc.UNKNOWN, 'Failed to run addon script: '..err) end
