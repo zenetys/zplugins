@@ -17,6 +17,7 @@ NAGIOS_STATUS_TEXT=(
 NAGIOS_STATUS_PRIO_TR=( 0 2 3 1 )
 
 DIR=
+INDEX=index
 WARNING=
 CRITICAL=
 
@@ -36,6 +37,7 @@ Nagios plugin to check for certificates expiration in an OpenSSL CA
 
 Common options:
   -d, --directory DIR     OpenSSL CA base directory
+  -i, --index     FNAME   OpenSSL CA database filename
   -w, --warning   INT     Days left before expiration, warning threshold
   -c, --critical  INT     Days left before expiration, critical threshold
   -E, --ignore-expired    Do not warn on expired certificates not revoked
@@ -83,7 +85,7 @@ function increase_prio() {
 }
 
 function get_openssl_ca_index() {
-    local cmd=( ${SUDO_USER:+sudo -u "$SUDO_USER"} cat "$DIR/index" )
+    local cmd=( ${SUDO_USER:+sudo -u "$SUDO_USER"} cat "$DIR/$INDEX" )
     local sshopts sshargs
     if [[ -n $SSH_HOST ]]; then
         sshopts=(
@@ -102,6 +104,7 @@ while (( $# > 0 )); do
     case "$1" in
         # common
         -d|--directory) DIR=$2; shift ;;
+        -i|--index) INDEX=$2; shift ;;
         -w|--warning) WARNING=$2; shift ;;
         -c|--critical) CRITICAL=$2; shift ;;
         -E|--ignore-expired) IGNORE_EXPIRED=1 ;;
