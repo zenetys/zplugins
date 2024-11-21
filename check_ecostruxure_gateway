@@ -16,7 +16,6 @@
 lc = require 'libcheck'
 lp = require 'libperfdata'
 ll = require 'liblock'
-curl = require 'lcurl'
 ZCurl = require 'libzcurl'
 lfs = require 'lfs'
 
@@ -99,16 +98,15 @@ function get_check_cached_data()
 end
 
 function fetch_and_cache_data()
-    local zcurl = ZCurl:new({
-        [curl.OPT_SSL_VERIFYPEER] = 0,
-        [curl.OPT_SSL_VERIFYHOST] = 0,
-        [curl.OPT_TIMEOUT] = lc.opts.timeout,
-        [curl.OPT_VERBOSE] = lc.opts.debug,
-        [curl.OPT_FOLLOWLOCATION] = true,
-        [curl.OPT_FAILONERROR] = true,
-        [curl.OPT_NETRC] = lc.opts.netrc,
-        [curl.OPT_COOKIEFILE] = '', -- in memory cookies
-        [curl.OPT_WRITEFUNCTION] = ZCurl._write_quiet,
+    local zcurl = ZCurl.new({
+        ssl_verifypeer = 0,
+        ssl_verifyhost = 0,
+        timeout = lc.opts.timeout,
+        verbose = lc.opts.debug,
+        followlocation = true,
+        failonerror = true,
+        netrc = lc.opts.netrc,
+        cookiefile = '', -- in memory cookies
     })
     local success, err
     local xsrf_token = nil
@@ -117,9 +115,9 @@ function fetch_and_cache_data()
             -- logout
             zcurl:resetopts()
             zcurl:perform({
-                [curl.OPT_CUSTOMREQUEST] = 'DELETE',
-                [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/v1/users/session',
-                [curl.OPT_HTTPHEADER] = {
+                customrequest = 'DELETE',
+                url = 'https://'..lc.opts.hostname..'/gateway/rest/v1/users/session',
+                httpheader = {
                     'X-XSRF-TOKEN: '..xsrf_token,
                     'Referer: https://'..lc.opts.hostname..'/gateway/'
                 },
@@ -134,16 +132,16 @@ function fetch_and_cache_data()
 
     -- login
     success, err = zcurl:perform({
-        [curl.OPT_CUSTOMREQUEST] = 'POST',
-        [curl.OPT_URL] = 'https://'..lc.opts.hostname..'/gateway/rest/v1/users/session',
-        [curl.OPT_HTTPHEADER] = { 'content-type: application/json' },
-        [curl.OPT_USERNAME] = lc.opts.username,
-        [curl.OPT_PASSWORD] = lc.opts.password,
+        customrequest = 'POST',
+        url = 'https://'..lc.opts.hostname..'/gateway/rest/v1/users/session',
+        httpheader = { 'content-type: application/json' },
+        username = lc.opts.username,
+        password = lc.opts.password,
     })
     if not success then teardown(); lc.die_unkn(err) end
 
     -- find XSRF-TOKEN
-    for _, cookie_entry in ipairs(zcurl:getinfo(curl.INFO_COOKIELIST)) do
+    for _, cookie_entry in ipairs(zcurl.info.cookielist) do
         k,v = cookie_entry:match('.*\t([^\t]+)\t(.+)$')
         if k == 'XSRF-TOKEN' then
             xsrf_token = v
@@ -158,18 +156,18 @@ function fetch_and_cache_data()
         if not v.handle then teardown(); lc.die_unkn('Cannot save data: '..err) end
         zcurl:resetopts()
         local opts = {
-            [curl.OPT_CUSTOMREQUEST] = v.post_data and 'POST' or 'GET',
-            [curl.OPT_POSTFIELDS] = v.post_data,
-            [curl.OPT_URL] = 'https://'..lc.opts.hostname..v.url,
-            [curl.OPT_WRITEFUNCTION] = v.handle,
-            [curl.OPT_HTTPHEADER] = {
+            customrequest = v.post_data and 'POST' or 'GET',
+            postfields = v.post_data,
+            url = 'https://'..lc.opts.hostname..v.url,
+            writefunction = v.handle,
+            httpheader = {
                 'X-XSRF-TOKEN: '..xsrf_token,
                 'Referer: https://'..lc.opts.hostname..'/gateway/'
             },
         }
         if (v.headers) then
             for _,h in ipairs(v.headers) do
-                table.insert(opts[curl.OPT_HTTPHEADER], h)
+                table.insert(opts.httpheader, h)
             end
         end
         success, err = zcurl:perform(opts)
