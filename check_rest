@@ -200,7 +200,11 @@ if #perfdata == 0 then
 end
 lc.dump(perfdata, 'Dump perfdata')
 
--- state
-lc.exit_code = lp.compute_perfdata(perfdata)
-lc.exit_message = lp.format_output(perfdata)..'|'..
-    lp.format_perfdata(perfdata)
+-- set exit state and output if not already done by addon
+if not lc.exit_code then
+    lc.exit_code = lp.compute_perfdata(perfdata)
+end
+if not lc.exit_message then
+    lc.exit_message = lp.format_output(perfdata)..'|'..
+        lp.format_perfdata(perfdata)
+end
