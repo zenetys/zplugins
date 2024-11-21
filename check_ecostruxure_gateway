@@ -24,20 +24,20 @@ lc.shortdescr = 'Check devices managed by EcoStruxure IT Gateway'
 lc.progtype = 'local'
 
 lc.optsdef = {
-    { short = 'H', long = 'hostname', arg = true, required = true, help = '' },
-    { short = 'n', long = 'username', arg = true, required = true, help = 'Authentication username' },
-    { short = 'p', long = 'password', arg = true, required = true, help = 'Authentication password' },
-    { short = 'y', long = 'device-type', arg = true, help = 'Device type' },
-    { short = 'd', long = 'device-label', arg = true, help = 'Device label' },
-    { short = 's', long = 'sensor-label', arg = true, help = 'Sensor label' },
-    { short = 'w', long = 'warning', arg = true, help = 'Warning threshold (for sensors with value)' },
-    { short = 'c', long = 'critical', arg = true, help = 'Critical threshold (for sensors with value)' },
-    { short = 'r', long = 'reverse-threshold', arg = true, call = lc.setter_opt_iboolean, help = 'Reverse thresholds (not for ranges)' },
-    { short = 'e', long = 'expect', arg = true, help = 'Expected pattern (for sensors with state)' },
-    { short = 'R', long = 'netrc', arg = true, call = lc.setter_opt_iboolean, help = 'Enable ~/.netrc' },
-    { short = 't', long = 'timeout', arg = true, call = lc.setter_opt_number, help = 'Fetch timeout (s)' },
-    { short = 'T', long = 'ttl', arg = true, call = lc.setter_opt_number, help = 'Cache TTL in seconds' },
-    { short = 'k', long = 'lock-max-wait-time', arg = true, call = lc.setter_opt_number, help = 'Max time (s) to wait for the lock' },
+    { short = 'H', long = 'hostname', required = true, help = '' },
+    { short = 'n', long = 'username', required = true, help = 'Authentication username' },
+    { short = 'p', long = 'password', required = true, help = 'Authentication password' },
+    { short = 'y', long = 'device-type', help = 'Device type' },
+    { short = 'd', long = 'device-label', help = 'Device label' },
+    { short = 's', long = 'sensor-label', help = 'Sensor label' },
+    { short = 'w', long = 'warning', help = 'Warning threshold (for sensors with value)' },
+    { short = 'c', long = 'critical', help = 'Critical threshold (for sensors with value)' },
+    { short = 'r', long = 'reverse-threshold', call = lc.setter_opt_iboolean, help = 'Reverse thresholds (not for ranges)' },
+    { short = 'e', long = 'expect', help = 'Expected pattern (for sensors with state)' },
+    { short = 'R', long = 'netrc', call = lc.setter_opt_iboolean, help = 'Enable ~/.netrc' },
+    { short = 't', long = 'timeout', call = lc.setter_opt_number, help = 'Fetch timeout (s)' },
+    { short = 'T', long = 'ttl', call = lc.setter_opt_number, help = 'Cache TTL in seconds' },
+    { short = 'k', long = 'lock-max-wait-time', call = lc.setter_opt_number, help = 'Max time (s) to wait for the lock' },
 }
 
 lc.init_opts()
