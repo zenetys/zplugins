@@ -506,8 +506,11 @@ function lc.init_opts()
         -- arg enabled by default
         if optdef.arg ~= false then
             i = i + 1
-            if arg[i] == '$' then optignore = true
-            else optvalue = arg[i] end
+            if arg[i] == '$' or (arg[i] == '' and optdef.emptynil ~= false) then
+                optignore = true
+            else
+                optvalue = arg[i]
+            end
         else
             optvalue = true
         end
