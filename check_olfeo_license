@@ -1,0 +1,173 @@
+#!/bin/bash
+
+set -f
+PROGNAME=${0##*/}
+NAGIOS_STATUS_TEXT=(
+    [0]='OK'
+    [1]='WARNING'
+    [2]='CRITICAL'
+    [3]='UNKNOWN'
+)
+NAGIOS_STATUS_PRIO_TR=( 0 2 3 1 )
+
+WARNING=
+CRITICAL=
+INCLUDE=^
+EXCLUDE=
+HOST=
+PORT=
+SSH_USER=
+SSH_IDENTITY=
+TIMEOUT=
+SUDO_USER=
+OLFEO_LICENSE_JSON=/opt/olfeo/chroot/opt/olfeo/data/licence.json
+
+function nagios_exit_usage() {
+    echo "\
+Usage: $PROGNAME [OPTION...]
+Nagios plugin to check Olfeo license expiration via SSH
+
+Common options:
+  -w, --warning       DAYS    Warning threshold in days
+  -c, --critical      DAYS    Critical threshold in days
+  -L, --olfeo-json    FILE    Custom path to Olfeo licence.json
+  -S, --sudo-user     USER    Use sudo to cat Olfeo licence.json
+  -h, --help                  Display this help
+
+SSH options:
+  -s, --ssh           CMD     Custom SSH command, see documentation below
+  -H, --host          HOST    SSH host
+  -p, --port          INT     SSH port
+  -u, --ssh-user      USER    SSH username
+  -i, --ssh-identity  FILE    SSH identity key file
+  -t, --timeout       INT     SSH connect timeout
+
+When using option -S, --ssh, classic SSH options get ignored. It is then
+up to the caller to properly escape args and handle SSH options like
+identity, port, user, connect timeout.
+Usage example: check_disk_smart -S 'ssh -i key cmd@bastion host' ...
+"
+    exit 3
+}
+
+# $1: Nagios status code
+# $2: Plugin output message
+# $@: Optional lines of long plugin output
+function nagios_die() {
+    echo "${NAGIOS_STATUS_TEXT[$1]}: $2"
+    (( $# > 2 )) && (IFS=$'\n'; echo "${*:3}")
+    exit "$1"
+}
+
+# $1: current state
+# $2: want state
+function increase_prio() {
+    REPLY=$1
+    if (( NAGIOS_STATUS_PRIO_TR[$2] > NAGIOS_STATUS_PRIO_TR[$1] )); then
+        REPLY=$2
+    fi
+}
+
+function get_cmd() {
+    local cmd=( "$@" )
+    local sshopts sshargs ret
+    if [[ -n $SSH_CMD || -n $HOST ]]; then
+        printf -v sshargs "%q " "${cmd[@]}"
+        if [[ -n $SSH_CMD ]]; then
+            # custom ssh command: it is up to the caller to properly escape args
+            # and handle ssh options like identity, port, user, connect timeout
+            cmd=( $SSH_CMD -- "$sshargs" )
+        elif [[ -n $HOST ]]; then
+            cmd=(
+                ssh ${SSH_IDENTITY:+-i "$SSH_IDENTITY"} ${SSH_USER:+-l "$SSH_USER"}
+                ${PORT:+-p "$PORT"} -q -C -T -o StrictHostKeyChecking=no
+                -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey
+                ${TIMEOUT:+-o "ConnectTimeout=$TIMEOUT"} "$HOST" -- "$sshargs"
+            )
+        fi
+    fi
+    "${cmd[@]}"
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        -w|--warning) WARNING=$2; shift ;;
+        -c|--critical) CRITICAL=$2; shift ;;
+        -I|--include) INCLUDE=$2; shift ;;
+        -E|--exclude) EXCLUDE=$2; shift ;;
+        -L|--olfeo-json) OLFEO_LICENSE_JSON=$2; shift ;;
+        -S|--sudo-user) SUDO_USER=$2; shift ;;
+        -h|--help) nagios_exit_usage ;;
+        -H|--host) HOST=$2; shift ;;
+        -p|--port) PORT=$2; shift ;;
+        -t|--timeout) TIMEOUT=$2; shift ;;
+        -s|--ssh) SSH_CMD=$2; shift ;;
+        -u|--ssh-user) SSH_USER=$2; shift ;;
+        -i|--ssh-identity) SSH_IDENTITY=$2; shift ;;
+    esac
+    shift
+done
+
+[[ -n $WARNING && -n ${WARNING//[0-9]} ]] &&
+    nagios_die 3 'Invalid warning threshold, integer expected'
+[[ -n $CRITICAL && -n ${CRITICAL//[0-9]} ]] &&
+    nagios_die 3 'Invalid critical threshold, integer expected'
+[[ -n $TIMEOUT && -n ${TIMEOUT//[0-9]} ]] &&
+    nagios_die 3 'Invalid SSH connect timeout, integer expected'
+[[ -n $SSH_IDENTITY && ! -r $SSH_IDENTITY ]] &&
+    nagios_die 3 'Cannot read SSH identity file'
+
+REPLY=$(get_cmd ${SUDO_USER:+sudo -n -u "$SUDO_USER"} cat "$OLFEO_LICENSE_JSON")
+ret=$?
+if [[ -n $SSH_CMD || -n $HOST ]] && (( ret == 255 )); then
+    nagios_die 3 'SSH connect failed'
+elif (( ret != 0 )); then
+    nagios_die 3 'Failed to get data'
+fi
+[[ -n $DEBUG ]] && { echo "## JSON"; echo "$REPLY"; } >&2
+
+# non fatal
+owner=$(echo "$REPLY" |jq -r '.owner')
+[[ -n $DEBUG ]] && { echo "## owner"; echo "$owner"; } >&2
+
+licenses=$(echo "$REPLY" |jq -r '
+    to_entries[] |
+    select((.value|type) == "object" and .value.end) |
+    "\(.key)\t\(.value.end)"
+')
+(( $? == 0 )) || nagios_die 3 'Failed to extract license dates from JSON'
+[[ -n $DEBUG ]] && { echo "## licenses"; echo "$licenses"; } >&2
+
+status=0
+message="${owner:+License ${owner}.}"
+excluded=
+
+if [[ -z $licenses ]]; then
+    increase_prio "$status" 2; status=$REPLY
+    message+="${message:+ }**Expired / no license**"
+else
+    declare -A by_end_date=()
+    while IFS=$'\t' read -r key end; do
+        if [[ $key =~ $INCLUDE && (-z $EXCLUDE || ! $key =~ $EXCLUDE) ]]; then
+            by_end_date[$end]+=${by_end_date[$end]:+, }${key}
+        else
+            excluded+="${excluded:+, }${key}"
+        fi
+    done < <(echo "$licenses")
+
+    now_ts=$(date +%s) || nagios_die 3 'Failed to get current time'
+    for end in $( (IFS=$'\n'; echo "${!by_end_date[*]}") |sort ); do
+        end_ts=$(date -u -d "$end" +%s)
+        days_left=$(( (end_ts - now_ts) / 86400 ))
+        err=
+        if [[ -n $CRITICAL ]] && (( days_left <= CRITICAL )); then
+            increase_prio "$status" 2; status=$REPLY; err=1
+        elif [[ -n $WARNING ]] && (( days_left <= WARNING )); then
+            increase_prio "$status" 1; status=$REPLY; err=1
+        fi
+        message+="${message:+ }${err:+**}Expire ${end}${err:+**} (${days_left}d): ${by_end_date[$end]}."
+    done
+fi
+
+[[ -n $excluded ]] && message+=" Exclude: $excluded."
+nagios_die "$status" "$message"
