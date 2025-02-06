@@ -20,7 +20,7 @@ SSH_IDENTITY=
 TIMEOUT=
 SUDO_USER=
 SNMP_OID=
-SNMP_OPTIONS=
+SNMP_OPTIONS=()
 
 function nagios_exit_usage() {
     echo "\
@@ -47,7 +47,7 @@ SNMP options:
   -p, --port          INT     SNMP port
   -t, --timeout       INT     Alias for SNMP option -t (timeout)
   -O, --snmp-oid      OID     OID that return result in get_smart format
-  -P, --snmp-options  ARGS    SNMP options, eg: -v 2c -c public -t 3 -r 1
+  -P, --snmp-options  ARGS    SNMP options, eg: -v 2c -c public, end with --
   -T, --snmp-sample-script    Display sample SNMP extend script
 
 When using option -S, --ssh, classic SSH options get ignored. It is then
@@ -116,6 +116,16 @@ function nagopt_var() {
     declare -g "$1=$2"
 }
 
+function nagopt_arglist() {
+    local var=$1; shift
+    local value=()
+    while (( $# > 0 )) && [[ $1 != -- ]]; do
+        value+=( "$1" )
+        shift
+    done
+    declare -ga "$var=( \"\${value[@]}\" )"
+}
+
 function get_cmd() {
     local cmd=( "$@" )
     local sshopts sshargs ret
@@ -159,8 +169,7 @@ function get_smart() {
 }
 
 function get_snmp() {
-    declare -a opts="( $SNMP_OPTIONS )"
-    snmpget -OqevU ${TIMEOUT:+-t "$TIMEOUT"} "${opts[@]}" "${HOST}${PORT:+:$PORT}" "$SNMP_OID" |
+    snmpget -OqevU "${SNMP_OPTIONS[@]}" ${TIMEOUT:+-t "$TIMEOUT"} "${HOST}${PORT:+:$PORT}" "$SNMP_OID" |
         tr -d '"' |grep -Fv 'No Such Instance' || return 2
 }
 
@@ -199,7 +208,7 @@ while (( $# > 0 )); do
         -i|--ssh-identity) nagopt_var SSH_IDENTITY "$2"; shift ;;
         # snmp
         -O|--snmp-oid) nagopt_var SNMP_OID "$2"; shift ;;
-        -P|--snmp-options) nagopt_var SNMP_OPTIONS "$2"; shift ;;
+        -P|--snmp-options) nagopt_arglist SNMP_OPTIONS "${@:2}"; shift $((${#SNMP_OPTIONS[@]}+1)) ;;
         -T|--snmp-sample-script) sample_snmp_script ;;
 
         *) nagios_exit_usage ;;
