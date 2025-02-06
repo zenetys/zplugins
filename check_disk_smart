@@ -196,6 +196,8 @@ while (( $# > 0 )); do
         -O|--snmp-oid) SNMP_OID=$2; shift ;;
         -P|--snmp-options) SNMP_OPTIONS=$2; shift ;;
         -T|--snmp-sample-script) sample_snmp_script ;;
+
+        *) nagios_exit_usage ;;
     esac
     shift
 done
