@@ -111,6 +111,11 @@ function increase_prio() {
     fi
 }
 
+function nagopt_var() {
+    [[ -z $2 || $2 == '$' ]] && return
+    declare -g "$1=$2"
+}
+
 function get_cmd() {
     local cmd=( "$@" )
     local sshopts sshargs ret
@@ -179,22 +184,22 @@ function reply_get_smart() {
 while (( $# > 0 )); do
     case "$1" in
         # common
-        -d|--device) DEVICE=$2; shift ;;
-        -r|--regex) IS_REGEX=$2; shift ;;
-        -S|--sudo-user) SUDO_USER=$2; shift ;;
-        -E|--bash-env) ENV=$2; shift ;;
+        -d|--device) nagopt_var DEVICE "$2"; shift ;;
+        -r|--regex) nagopt_var IS_REGEX "$2"; shift ;;
+        -S|--sudo-user) nagopt_var SUDO_USER "$2"; shift ;;
+        -E|--bash-env) nagopt_var ENV "$2"; shift ;;
         -h|--help) nagios_exit_usage ;;
         # ssh, snmp
-        -H|--host) HOST=$2; shift ;;
-        -p|--port) PORT=$2; shift ;;
-        -t|--timeout) TIMEOUT=$2; shift ;;
+        -H|--host) nagopt_var HOST "$2"; shift ;;
+        -p|--port) nagopt_var PORT "$2"; shift ;;
+        -t|--timeout) nagopt_var TIMEOUT "$2"; shift ;;
         # ssh
-        -s|--ssh) SSH_CMD=$2; shift ;;
-        -u|--ssh-user) SSH_USER=$2; shift ;;
-        -i|--ssh-identity) SSH_IDENTITY=$2; shift ;;
+        -s|--ssh) nagopt_var SSH_CMD "$2"; shift ;;
+        -u|--ssh-user) nagopt_var SSH_USER "$2"; shift ;;
+        -i|--ssh-identity) nagopt_var SSH_IDENTITY "$2"; shift ;;
         # snmp
-        -O|--snmp-oid) SNMP_OID=$2; shift ;;
-        -P|--snmp-options) SNMP_OPTIONS=$2; shift ;;
+        -O|--snmp-oid) nagopt_var SNMP_OID "$2"; shift ;;
+        -P|--snmp-options) nagopt_var SNMP_OPTIONS "$2"; shift ;;
         -T|--snmp-sample-script) sample_snmp_script ;;
 
         *) nagios_exit_usage ;;
