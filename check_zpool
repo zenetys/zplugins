@@ -1,0 +1,244 @@
+#!/bin/bash
+
+PROGNAME=${0##*/}
+
+function nagios_exit_usage() {
+    echo "\
+Usage: $PROGNAME [OPTION...]
+Nagios plugin to check zpools status and usage
+
+Common options:
+  -w, --warning-usage   INT     Percent usage warning threshold
+  -c, --critical-usage  INT     Percent usage critical threshold
+  -S, --sudo-user       USER    Run commands with sudo -u USER
+  -h, --help                    Display this help
+
+SSH options:
+  -s, --ssh           CMD     Custom SSH command, see documentation below
+  -H, --host          HOST    SSH host
+  -p, --port          INT     SSH port
+  -u, --ssh-user      USER    SSH username
+  -i, --ssh-identity  FILE    SSH identity key file
+  -t, --timeout       INT     SSH connect timeout
+
+SNMP options:
+  -H, --host          HOST    SNMP host
+  -p, --port          INT     SNMP port
+  -t, --timeout       INT     Alias for SNMP option -t (timeout)
+  -O, --snmp-oid      OID     OID that return result in get_zpool format
+  -P, --snmp-options  ARGS    SNMP options, eg: -v 2c -c public, end with --
+
+When using option -S, --ssh, classic SSH options get ignored. It is then
+up to the caller to properly escape args and handle SSH options like
+identity, port, user, connect timeout.
+Usage example: $PROGNAME -S 'ssh -i key cmd@bastion host' ...
+
+When using option -O, --snmp-oid, commands output is retrieved from
+the given OID.
+
+Sample snmpd extend configuration (note the extend command is split in two
+line here for formatting purpose, stick to one line in snmpd configuration):
+# NET-SNMP-EXTEND-MIB::nsExtendOutputFull.\"zpool\"
+# .1.3.6.1.4.1.8072.1.3.2.3.1.2.5.122.112.111.111.108
+extend zpool /bin/sh -c '/usr/sbin/zpool list -o name,health; \\
+    /usr/sbin/zfs list -d 0 -p -o name,used,avail'
+"
+    exit 3
+}
+
+function nagopt_var() {
+    [[ -z $2 || $2 == '$' ]] && return
+    declare -g "$1=$2"
+}
+
+function nagopt_arglist() {
+    local var=$1; shift
+    local value=()
+    while (( $# > 0 )) && [[ $1 != -- ]]; do
+        value+=( "$1" )
+        shift
+    done
+    declare -ga "$var=( \"\${value[@]}\" )"
+}
+
+function get_zpool() {
+    if [[ -n $SNMP_OID && -n $HOST ]]; then
+        snmpget -OqevU "${SNMP_OPTIONS[@]}" ${TIMEOUT:+-t "$TIMEOUT"} \
+            "${HOST}${PORT:+:$PORT}" "$SNMP_OID" |
+                tr -d '"' |grep -Fv 'No Such Instance' || return 2
+    else
+        cmd=( ${SUDO_USER:+sudo -n -u "$SUDO_USER"} zpool list -o name,health \;
+              ${SUDO_USER:+sudo -n -u "$SUDO_USER"} zfs list -d 0 -p -o name,used,avail )
+        printf -v sshargs "%q " "${cmd[@]}"
+        if [[ -n $SSH_CMD ]]; then
+            # custom ssh command: it is up to the caller to properly escape args
+            # and handle ssh options like identity, port, user, connect timeout
+            cmd=( $SSH_CMD -- "$sshargs" )
+        elif [[ -n $HOST ]]; then
+            cmd=(
+                ssh ${SSH_IDENTITY:+-i "$SSH_IDENTITY"} ${SSH_USER:+-l "$SSH_USER"}
+                ${PORT:+-p "$PORT"} -q -C -T -o StrictHostKeyChecking=no
+                -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey
+                ${TIMEOUT:+-o "ConnectTimeout=$TIMEOUT"} "$HOST" -- "$sshargs"
+            )
+        fi
+        "${cmd[@]}"
+    fi
+}
+
+HOST=
+PORT=
+SSH_USER=
+SSH_IDENTITY=
+TIMEOUT=
+SUDO_USER=
+SNMP_OID=
+SNMP_OPTIONS=()
+WARNING_USAGE=
+CRITICAL_USAGE=
+
+while (( $# > 0 )); do
+    case "$1" in
+        # ssh, snmp
+        -H|--host) nagopt_var HOST "$2"; shift ;;
+        -p|--port) nagopt_var PORT "$2"; shift ;;
+        -t|--timeout) nagopt_var TIMEOUT "$2"; shift ;;
+        # ssh
+        -s|--ssh) nagopt_var SSH_CMD "$2"; shift ;;
+        -u|--ssh-user) nagopt_var SSH_USER "$2"; shift ;;
+        -i|--ssh-identity) nagopt_var SSH_IDENTITY "$2"; shift ;;
+        # snmp
+        -O|--snmp-oid) nagopt_var SNMP_OID "$2"; shift ;;
+        -P|--snmp-options) nagopt_arglist SNMP_OPTIONS "${@:2}"; shift $((${#SNMP_OPTIONS[@]}+1)) ;;
+        # common
+        -w|--warning-usage) nagopt_var WARNING_USAGE "$2"; shift ;;
+        -c|--critical-usage) nagopt_var CRITICAL_USAGE "$2"; shift ;;
+        -S|--sudo-user) nagopt_var SUDO_USER "$2"; shift ;;
+        -h|--help) nagios_exit_usage ;;
+        *) nagios_exit_usage ;;
+    esac
+    shift
+done
+
+REPLY=$(get_zpool)
+ret=$?
+
+if [[ ( -n $SSH_CMD || (-n $HOST && -z $SNMP_OID) ) ]] && (( ret == 255 )); then
+    echo 'UNKNOWN: SSH connect failed'
+    exit 3
+fi
+if (( ret != 0 )); then
+    echo 'UNKNOWN: Failed to get /proc/mdstat data'
+    exit 3
+fi
+
+#echo "$REPLY" >&2
+echo "$REPLY" |awk \
+    -v "WARNING_USAGE=$WARNING_USAGE" \
+    -v "CRITICAL_USAGE=$CRITICAL_USAGE" \
+'
+$1 == "NAME" && $2 == "HEALTH" {
+    parse = 1;
+    next;
+}
+$1 == "NAME" && $2 == "USED" && $3 == "AVAIL" {
+    parse = 2;
+    next;
+}
+parse == 1 {
+    name = $1
+    health[name] = $2
+    all_names[name] = 1;
+}
+parse == 2 {
+    name = $1
+    used[name] = $2;
+    avail[name] = $3;
+    all_names[name] = 1;
+}
+
+function increase_prio(current, target) {
+    return (NAGIOS_STATUS_PRIO_TR[target] > NAGIOS_STATUS_PRIO_TR[current]) \
+        ? target : current;
+}
+
+function human(input, mult, sep, _sym) {
+    _sym = 1;
+    while (input >= mult && _sym < HSYM_LEN) {
+        _sym++;
+        input = input / mult;
+    }
+    return sprintf("%.2lf%s%s", input, sep, HSYM[_sym]);
+}
+
+BEGIN {
+    HSYM_LEN = split(" ,K,M,G,T,P", HSYM, ",");
+}
+
+END {
+    NAGIOS_STATUS_TEXT[0] = "OK";
+    NAGIOS_STATUS_TEXT[1] = "WARNING";
+    NAGIOS_STATUS_TEXT[2] = "CRITICAL";
+    NAGIOS_STATUS_TEXT[3] = "UNKNOWN";
+    NAGIOS_STATUS_PRIO_TR[0] = 0;
+    NAGIOS_STATUS_PRIO_TR[1] = 2;
+    NAGIOS_STATUS_PRIO_TR[2] = 3;
+    NAGIOS_STATUS_PRIO_TR[3] = 1;
+    status = 0;
+    output_err = "";
+    output = "";
+    perfdata = "";
+
+    for (name in all_names) {
+        cur_status = 0;
+        cur_output = "";
+        if (health[name] == "") {
+            cur_output = cur_output "health ???";
+            cur_status = increase_prio(cur_status, 3);
+        }
+        else if (health[name] != "ONLINE") {
+            cur_output = cur_output health[name];
+            cur_status = increase_prio(cur_status, 2);
+        }
+        else {
+            cur_output = cur_output health[name];
+        }
+        cur_output = cur_output ", usage"
+        if (used[name] == "" || avail[name] == "") {
+            cur_output = cur_output " ???"
+            perfdata = perfdata (perfdata == "" ? "" : " ") \
+                "zpool." name ".used_bytes=U;;;;" \
+                " zpool." name ".used_percent=U;;;0;100";
+            cur_status = increase_prio(cur_status, 3);
+        }
+        else {
+            size = used[name] + avail[name];
+            used_perc = used[name] * 100 / size;
+            cur_output = cur_output " " sprintf("%.2lf", used_perc) "%" \
+                " = " human(used[name], 1024) "B/" human(size, 1024) "B" \
+                " (" human(avail[name], 1024) "B free)"
+            perfdata = perfdata (perfdata == "" ? "" : " ") \
+                "zpool." name ".used_bytes=" used[name] "B;;;;" size \
+                " zpool." name ".used_percent=" sprintf("%.6lf", used_perc) "%;;;0;100";
+            if (CRITICAL_USAGE != "" && used_perc >= CRITICAL_USAGE)
+                cur_status = increase_prio(cur_status, 2);
+            else if (WARNING_USAGE != "" && used_perc >= WARNING_USAGE)
+                cur_status = increase_prio(cur_status, 1);
+        }
+
+        if (cur_status == 0)
+            output = output (output == "" ? "" : " - ") name " " cur_output;
+        else
+            output = "**" name "** " cur_output (output == "" ? "" : " - ") output;
+
+        status = increase_prio(status, cur_status);
+    }
+
+    if (output == "") {
+        status = increase_prio(status, 3);
+        output = "No zpool found!";
+    }
+    print NAGIOS_STATUS_TEXT[status] ": " output "|" perfdata;
+    exit(status);
+}
+'
