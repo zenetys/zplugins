@@ -8,6 +8,8 @@ Usage: $PROGNAME [OPTION...]
 Nagios plugin to check Linux RAID status
 
 Common options:
+  -I, --include       REGEX   Include raid device pattern
+  -E, --exclude       REGEX   Exclude raid device pattern
   -S, --sudo-user     USER    Run cat /proc/mdstat with sudo -u USER
   -h, --help                  Display this help
 
@@ -84,6 +86,8 @@ TIMEOUT=
 SUDO_USER=
 SNMP_OID=
 SNMP_OPTIONS=()
+INCLUDE=^
+EXCLUDE=
 
 while (( $# > 0 )); do
     case "$1" in
@@ -99,6 +103,8 @@ while (( $# > 0 )); do
         -O|--snmp-oid) nagopt_var SNMP_OID "$2"; shift ;;
         -P|--snmp-options) nagopt_arglist SNMP_OPTIONS "${@:2}"; shift $((${#SNMP_OPTIONS[@]}+1)) ;;
         # common
+        -I|--include) nagopt_var INCLUDE "$2"; shift ;;
+        -E|--exclude) nagopt_var EXCLUDE "$2"; shift ;;
         -S|--sudo-user) nagopt_var SUDO_USER "$2"; shift ;;
         -h|--help) nagios_exit_usage ;;
         *) nagios_exit_usage ;;
@@ -118,9 +124,15 @@ if (( ret != 0 )); then
     exit 3
 fi
 
-echo "$REPLY" |awk '
+echo "$REPLY" |awk \
+    -v "INCLUDE=$INCLUDE" \
+    -v "EXCLUDE=$EXCLUDE" \
+'
 parse == 0 && /^md[0-9]+ : / {
     md = $1;
+    if ((INCLUDE != "" && !match(md, INCLUDE)) ||
+        (EXCLUDE != "" && match(md, EXCLUDE)))
+        next;
     all_mds[md] = 1;
     array_state[md] = $3;
     parse = 1;
@@ -171,6 +183,7 @@ END {
         if (devices_in_use[md] < devices_total[md])
             cur_status = increase_prio(cur_status, 2);
         if (action[md] != "") {
+            cur_status = increase_prio(cur_status, 1);
             cur_output = cur_output ", " action[md];
             if (percent[md] != "")
                 cur_output = cur_output " " percent[md] "%";
