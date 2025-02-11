@@ -28,10 +28,10 @@ SNMP options:
   -O, --snmp-oid      OID     OID that return result in get_proc_mdstat format
   -P, --snmp-options  ARGS    SNMP options, eg: -v 2c -c public, end with --
 
-When using option -S, --ssh, classic SSH options get ignored. It is then
+When using option -s, --ssh, classic SSH options get ignored. It is then
 up to the caller to properly escape args and handle SSH options like
 identity, port, user, connect timeout.
-Usage example: check_mdstat -S 'ssh -i key cmd@bastion host' ...
+Usage example: check_mdstat -s 'ssh -i key cmd@bastion host' ...
 
 When using option -O, --snmp-oid, /proc/mdstat output is retrieved from
 the given OID.
