@@ -176,10 +176,10 @@ END {
         cur_status = 0;
         cur_output = "";
         if (array_state[md] != "active") {
-            cur_output = cur_output " " array_state[md]
+            cur_output = array_state[md] " ";
             cur_status = increase_prio(cur_status, 2);
         }
-        cur_output = cur_output " " devices_in_use[md] "/" devices_total[md] " disks";
+        cur_output = cur_output devices_in_use[md] "/" devices_total[md] " disks";
         if (devices_in_use[md] < devices_total[md])
             cur_status = increase_prio(cur_status, 2);
         if (action[md] != "") {
