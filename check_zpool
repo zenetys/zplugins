@@ -219,7 +219,8 @@ END {
                 " (" human(avail[name], 1024) "B free)"
             perfdata = perfdata (perfdata == "" ? "" : " ") \
                 "zpool." name ".used_bytes=" used[name] "B;;;;" size \
-                " zpool." name ".used_percent=" sprintf("%.6lf", used_perc) "%;;;0;100";
+                " zpool." name ".used_percent=" sprintf("%.6lf", used_perc) \
+                "%;" WARNING_USAGE ";" CRITICAL_USAGE ";0;100";
             if (CRITICAL_USAGE != "" && used_perc >= CRITICAL_USAGE)
                 cur_status = increase_prio(cur_status, 2);
             else if (WARNING_USAGE != "" && used_perc >= WARNING_USAGE)
