@@ -158,6 +158,27 @@ function increase_prio(current, target) {
         ? target : current;
 }
 
+function get_md_prio(md, _prio) {
+    _prio = 0
+    if (devices_in_use[md] < devices_total[md])
+        _prio = _prio + 10;
+    if (action[md] != "")
+        _prio = _prio + 10;
+    if (array_state[md] != "active")
+        _prio = _prio + 8;
+    return _prio;
+}
+
+function cmp_mds(i1,v1,i2,v2, _p1,_p2) {
+    _p1 = get_md_prio(i1);
+    _p2 = get_md_prio(i2);
+    if (_p1 > _p2) return -1;
+    else if (_p1 < _p2) return 1;
+    if (i1 < i2) return -1;
+    else if (i1 > i2) return 1;
+    else return 0
+}
+
 END {
     NAGIOS_STATUS_TEXT[0] = "OK";
     NAGIOS_STATUS_TEXT[1] = "WARNING";
@@ -172,6 +193,7 @@ END {
     output = "";
     perfdata = "";
 
+    PROCINFO["sorted_in"] = "cmp_mds";
     for (md in all_mds) {
         cur_status = 0;
         cur_output = "";
@@ -193,11 +215,9 @@ END {
                 cur_output = cur_output " " speed[md];
         }
 
-        if (cur_status == 0)
-            output = output (output == "" ? "" : " - ") md " = " cur_output;
-        else
-            output = "**" md "** = " cur_output (output == "" ? "" : " - ") output;
-
+        err_flag = (cur_status == 0) ? "" : "**";
+        output = output (output == "" ? "" : " - ") \
+            err_flag md err_flag " = " cur_output;
         perfdata = perfdata (perfdata == "" ? "" : " ") \
             "disks." md "=" devices_in_use[md] ";;;;" devices_total[md];
         status = increase_prio(status, cur_status);
