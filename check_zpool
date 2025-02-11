@@ -67,22 +67,20 @@ function get_zpool() {
             "${HOST}${PORT:+:$PORT}" "$SNMP_OID" |
                 tr -d '"' |grep -Fv 'No Such Instance' || return 2
     else
-        cmd=( ${SUDO_USER:+sudo -n -u "$SUDO_USER"} zpool list -o name,health \;
-              ${SUDO_USER:+sudo -n -u "$SUDO_USER"} zfs list -d 0 -p -o name,used,avail )
-        printf -v sshargs "%q " "${cmd[@]}"
+        local cmd1=( ${SUDO_USER:+sudo -n -u "$SUDO_USER"} zpool list -o name,health )
+        local cmd2=( ${SUDO_USER:+sudo -n -u "$SUDO_USER"} zfs list -d 0 -p -o name,used,avail )
         if [[ -n $SSH_CMD ]]; then
             # custom ssh command: it is up to the caller to properly escape args
             # and handle ssh options like identity, port, user, connect timeout
-            cmd=( $SSH_CMD -- "$sshargs" )
+            $SSH_CMD -- "${cmd1[@]@Q} ; ${cmd2[@]@Q}"
         elif [[ -n $HOST ]]; then
-            cmd=(
-                ssh ${SSH_IDENTITY:+-i "$SSH_IDENTITY"} ${SSH_USER:+-l "$SSH_USER"}
-                ${PORT:+-p "$PORT"} -q -C -T -o StrictHostKeyChecking=no
-                -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey
-                ${TIMEOUT:+-o "ConnectTimeout=$TIMEOUT"} "$HOST" -- "$sshargs"
-            )
+            ssh ${SSH_IDENTITY:+-i "$SSH_IDENTITY"} ${SSH_USER:+-l "$SSH_USER"} \
+                ${PORT:+-p "$PORT"} -q -C -T -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey \
+                ${TIMEOUT:+-o "ConnectTimeout=$TIMEOUT"} "$HOST" -- "${cmd1[@]@Q} ; ${cmd2[@]@Q}"
+        else
+            "${cmd1[@]}"; "${cmd2[@]}"
         fi
-        "${cmd[@]}"
     fi
 }
 
