@@ -128,7 +128,7 @@ if [[ ( -n $SSH_CMD || (-n $HOST && -z $SNMP_OID) ) ]] && (( ret == 255 )); then
     exit 3
 fi
 if (( ret != 0 )); then
-    echo 'UNKNOWN: Failed to get /proc/mdstat data'
+    echo 'UNKNOWN: Failed to get zpool data'
     exit 3
 fi
 
