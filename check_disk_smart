@@ -170,7 +170,7 @@ function get_smart() {
 
 function get_snmp() {
     snmpget -OqevU "${SNMP_OPTIONS[@]}" ${TIMEOUT:+-t "$TIMEOUT"} "${HOST}${PORT:+:$PORT}" "$SNMP_OID" |
-        tr -d '"' |grep -Fv 'No Such Instance' || return 2
+        tr -d '"' |grep -Fv 'No Such' || return 2
 }
 
 function reply_get_smart() {
