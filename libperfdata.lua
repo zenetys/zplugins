@@ -282,7 +282,11 @@ function LP.compute_perfdata(perfdata, initial_state)
     -- compute status from perfdata array
     for _, p in pairs(perfdata) do
         if (p.value == nil) then
-            p.state = LP.STATE_UNKNOWN
+            if (p.null_state == nil) then
+                p.state = LP.STATE_UNKNOWN
+            else
+                p.state = p.null_state
+            end
         elseif (p.critical and LP.check_range(p.value, p.critical, p.max)) then
             p.state = LP.STATE_CRITICAL
         elseif (p.warning and LP.check_range(p.value, p.warning, p.max)) then
