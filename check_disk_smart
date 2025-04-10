@@ -73,21 +73,27 @@ function sample_snmp_script() {
 
 # sudoers sample for Debian
 # root@sd-131018:~# cat /etc/sudoers.d/Debian-snmp
-# Debian-snmp ALL=(ALL) NOPASSWD: /usr/sbin/smartctl --scan, /usr/sbin/smartctl -H /dev/*
+# Debian-snmp ALL=(ALL) NOPASSWD: /opt/ztools/bin/get-smart
 #
 # snmpd.conf extend line
 # OID for script output .1.3.6.1.4.1.8072.1.3.2.3.1.2.5.115.109.97.114.116
 # extend smart /path/to/script
 
+set -f
 export LC_ALL=C
-smartctl=( smartctl )
-[[ UID == 0 ]] || smartctl=( sudo -n "${smartctl[@]}" )
-
-disks=( $("${smartctl[@]}" --scan |awk '{print $1}') )
+[[ $UID == 0 ]] || exec sudo -n "$0" "$@"
+OIFS=$IFS
+IFS=$'\n'
+disks=( $(smartctl --scan) )
+IFS=$OIFS
 (( ${#disks[@]} == 0 )) && exit 1
+
 for i in "${disks[@]}"; do
-    status=$("${smartctl[@]}" -H "$i" |sed -nre 's,.*(Health Status|overall-health self-assessment test result): (.+),\2,p')
-    printf '%s\t%s\n' "$i" "$status"
+    opts=${i%%#*}
+    [[ $opts == *,* ]] && subdev=":${opts##*,}" || subdev=
+    status=$(smartctl -H $opts |
+        sed -nre 's,.*(Health Status|overall-health self-assessment test result): (.+),\2,p')
+    printf '%s\t%s\n' "${i%% *}${subdev}" "$status"
 done
 EOF
     exit 3
@@ -155,15 +161,20 @@ function get_smart() {
     local i status
 
     if [[ $IS_REGEX == 1 ]]; then
-        disks+=( $("${smartctl[@]}" --scan |awk '{print $1}' |grep -E "$DEVICE") )
+        local OIFS=$IFS IFS=$'\n'
+        disks+=( $("${smartctl[@]}" --scan |awk -v "DEVICE=$DEVICE" '$1 ~ DEVICE {print}') )
+        local IFS=$OIFS
         (( ${#disks[@]} == 0 )) && return 1
     else
         disks+=( "$DEVICE" )
     fi
 
     for i in "${disks[@]}"; do
-        status=$("${smartctl[@]}" -H "$i" |sed -nre 's,.*(Health Status|overall-health self-assessment test result): (.+),\2,p')
-        printf '%s\t%s\n' "$i" "$status"
+        opts=${i%%#*}
+        [[ $opts == *,* ]] && subdev=":${opts##*,}" || subdev=
+        status=$(smartctl -H $opts |
+            sed -nre 's,.*(Health Status|overall-health self-assessment test result): (.+),\2,p')
+        printf '%s\t%s\n' "${i%% *}${subdev}" "$status"
     done
     return 0
 }
