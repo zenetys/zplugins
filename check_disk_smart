@@ -222,7 +222,7 @@ if [[ $IS_REGEX != 0 && $IS_REGEX != 1 ]]; then
     nagios_die 3 'Invalid regex flag, 0 or 1 expected'
 fi
 if [[ -z $DEVICE ]]; then
-    [[ $IS_R$1EGEX == 0 ]] && nagios_die 3 'Device required'
+    [[ $IS_REGEX == 0 ]] && nagios_die 3 'Device required'
     DEVICE=^
 fi
 if [[ -n $TIMEOUT && -n ${TIMEOUT//[0-9]} ]]; then
