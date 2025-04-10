@@ -143,12 +143,12 @@ $1 == "NAME" && $2 == "USED" && $3 == "AVAIL" {
     parse = 2;
     next;
 }
-parse == 1 {
+parse == 1 && NF == 2 {
     name = $1
     health[name] = $2
     all_names[name] = 1;
 }
-parse == 2 {
+parse == 2 && NF == 3 {
     name = $1
     used[name] = $2;
     avail[name] = $3;
