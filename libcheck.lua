@@ -212,9 +212,12 @@ end
 --      In that case program still terminates.
 --
 function default_on_exit()
-    local output
+    local output = ''
 
-    output = lc.checkname..' '..lc.status_text[lc.exit_code]..': '..
+    if lc.checkname and #lc.checkname > 0 then
+        output = output..lc.checkname..' '
+    end
+    output = output..lc.status_text[lc.exit_code]..': '..
         (lc.exit_message and lc.exit_message or 'No output defined')
     print(output)
 
