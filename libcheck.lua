@@ -353,7 +353,7 @@ function lc.exit_usage()
     print('Monitoring plugin '..lc.progname)
     if lc.shortdescr then print(lc.shortdescr) end
     print('\nAvailable options:')
-    for k,v in pairs(lc.optsdef) do
+    for _,v in ipairs(lc.optsdef) do
         local left, flags = '', ''
         if v.short then
             left = left..'-'..v.short
