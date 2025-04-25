@@ -52,7 +52,6 @@ for k,v in pairs(curl) do
     end
 end
 
-
 function ZCurl.new(curlopts)
     local instance = {}
     setmetatable(instance, ZCurl)
