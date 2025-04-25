@@ -519,7 +519,7 @@ function lc.init_opts()
         end
         if not optignore then
             if optdef.call then optvalue = optdef.call(optdef, optvalue) end
-            if not optvalue then lc.die(lc.UNKNOWN, 'Invalid value for option '..optarg) end
+            if optvalue == nil then lc.die(lc.UNKNOWN, 'Invalid value for option '..optarg) end
             lc.opts[optdef.key] = optvalue
         end
         i = i + 1
