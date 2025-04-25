@@ -173,4 +173,29 @@ function es.EsHandle:bulk(docs, indice, optype, doctype)
     return data
 end
 
+function es.EsHandle:esql(query, expand_env, format)
+    if not format then format = 'json' end
+    if type(query) ~= 'string' then query = cjson.encode(query) end
+    local query, err = lu.expand(query, expand_env, 'esql',
+        function(x) return (tostring(x):gsub('([\\"])', '\\%1')) end)
+    if not query then return nil, err end
+
+    local url = self.url..'/_query?format='..format
+    local httpheader = lu.acopy(self.zcurl:o('httpheader', {}), { 'content-type: application/json' })
+    local verbose = self.zcurl:o('verbose')
+
+    if verbose then perr('## POST %s\n%s', url, query) end
+    local ret, err = self.zcurl:perform({ url = url, postfields = query, httpheader = httpheader })
+    self.zcurl:resetopts()
+    if not ret then return nil, err end
+
+    local data = self.zcurl.response.body
+    if verbose then perr('## response\n%s', data) end
+    if format == 'json' then
+        data, err = cjson.decode(self.zcurl.response.body)
+        if not data then return nil, err end
+    end
+    return data
+end
+
 return es
