@@ -488,14 +488,19 @@ function lc.init_opts()
     local arg2opt = {}
     local i = 1
 
-    for k, v in ipairs(lc.optsdef) do
-        for _,o in ipairs({ 'long', 'short' }) do
-            if v[o] then
-                arg2opt[v[o]] = v
-                if not v.key then v.key = lc.cindex(v[o]) end
+    lc.optsdef.rebuild = function()
+        for k, v in ipairs(lc.optsdef) do
+            for _,o in ipairs({ 'long', 'short' }) do
+                if v[o] then
+                    arg2opt[v[o]] = v
+                    if not v.key then v.key = lc.cindex(v[o]) end
+                end
             end
         end
     end
+    -- callable if an option handler (call) adds new options
+    -- dynamically to lc.optsdef
+    lc.optsdef.rebuild()
 
     while i <= #arg do
         local optarg = arg[i]
