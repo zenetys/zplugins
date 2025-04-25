@@ -1,0 +1,142 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+local lc = require 'libcheck'
+local lp = require 'libperfdata'
+local es = require 'libes'
+require 'print_r'
+
+local default_parameter = {}
+local esh = {}
+local perfdata = {}
+local output_options = {}
+local env = setmetatable(
+    { lc = lc, lp = lp, es = es, default_parameter = default_parameter,
+      esh = esh, output_options = output_options, perfdata = perfdata },
+    { __index = _ENV })
+local addon_code = {}
+
+function load_addon(_, value)
+    if lc.lfs.attributes(value, 'mode') ~= 'file' then
+        if lc.lfs.attributes(lc.progdir..'/'..value, 'mode') == 'file' then
+            value = lc.progdir..'/'..value
+        else
+            lc.die(lc.UNKNOWN, 'Addon not found: '..value)
+        end
+    end
+
+    lc.debug('load addon: '..value)
+    local code, err = loadfile(value, nil, env)
+    if not code then
+        lc.die(lc.UNKNOWN, 'Failed to load addon: '..err)
+    end
+    local success, err = pcall(code, 'init')
+    if not success then
+        lc.die(lc.UNKNOWN, 'Failed to run addon optsdef: '..err)
+    end
+    lc.optsdef.rebuild()
+    table.insert(addon_code, { name = lc.basename(value), code = code })
+    return value
+end
+
+function setter_opt_es(opt, value)
+    local bk, value = value:match('^([^=]+)=(.*)')
+    if not bk then return nil end
+    if value == '$' then return true end
+    if not lc.opts._es[bk] then lc.opts._es[bk] = {} end
+    local _es_k = opt.key:sub(4) -- sub(4) to skip es_
+    if opt.type == 'number' then
+        value = lc.setter_opt_number(nil, value)
+    elseif opt.type == 'iboolean' then
+        value = lc.setter_opt_iboolean(nil, value)
+    elseif opt.type == 'array' then
+        local a = (lc.opts._es[bk][_es_k] or {})
+        table.insert(a, value)
+        value = a
+    end
+    if not value then return nil end
+    lc.opts._es[bk][_es_k] = value
+    return true
+end
+
+lc.checkname = 'ES'
+lc.shortdescr = 'Generic Nagios plugin to run Elasticsearch queries'
+
+lc.opts = {
+    _es = {},
+    parameter = {},
+}
+
+lc.optsdef = {
+    { short = 'a', long = 'addon', help = 'Custom addon script', call = load_addon, required = true },
+    { short = 'N', long = 'check-name', help = 'Set output prefix', call = function (o,v) lc.checkname = v; return v end },
+    { short = 'eu', long = 'es-url', help = 'Set url for an ES backend', call = setter_opt_es },
+    { short = 'ei', long = 'es-indice', help = 'Set indice for an ES backend', call = setter_opt_es },
+    { short = 'en', long = 'es-username', help = 'Set username for an ES backend', call = setter_opt_es },
+    { short = 'ew', long = 'es-password', help = 'Set password for an ES backend', call = setter_opt_es },
+    { short = 'ek', long = 'es-api-key', help = 'Set API key for an ES backend', call = setter_opt_es },
+    { short = 'eh', long = 'es-header', help = 'Add extra header for an ES backend', call = setter_opt_es, type = 'array' },
+    { short = 'ec', long = 'es-netrc', help = 'Set netrc option (0|1) for an ES backend', call = setter_opt_es, type = 'iboolean' },
+    { short = 'et', long = 'es-connecttimeout', help = 'Set connect timeout (s) for an ES backend', call = setter_opt_es, type = 'number' },
+    { short = 'eT', long = 'es-timeout', help = 'Set query timeout (s) for an ES backend', call = setter_opt_es, type = 'number' },
+    { short = 'ecs', long = 'es-curl-bin', help = 'Set path to curl (array) for an ES backend', call = setter_opt_es, type = 'array' },
+    { short = 'ecf', long = 'es-curl-fmt', help = 'Set curl command format for an ES backend', call = setter_opt_es },
+    { short = 'eca', long = 'es-curl-arg', help = 'Add extra curl args (array) for an ES backend', call = setter_opt_es, type = 'array' },
+    { short = 'p', long = 'parameter', help = 'Parameters (kv)', call = lc.setter_opt_kv },
+    { short = 'w', long = 'warning', help = 'Generic warning threshold (array)', call = lc.setter_opt_array },
+    { short = 'c', long = 'critical', help = 'Generic critical threshold (array)', call = lc.setter_opt_array },
+    { short = 't', long = 'timeout', help = 'Global timeout (s)', call = lc.setter_opt_number },
+}
+
+lc.init_opts()
+
+for k,v in pairs(lc.opts._es) do
+    if lc.opts.debug then v.verbose = true end
+    --v.failonerror=false
+    esh[k], err = es.EsHandle.new(v)
+    if not esh[k] then
+        lc.die(lc.UNKNOWN, 'Backend '..k..' init failed: '..err)
+    end
+end
+
+for k,v in pairs(default_parameter) do
+    if lc.opts.parameter[k] == nil then
+        lc.opts.parameter[k] = v
+    end
+end
+
+-- handle global timeout
+if lc.opts.timeout then
+    local global_timeout = os.time() + lc.opts.timeout
+    debug.sethook(function()
+        if os.time() >= global_timeout then
+            debug.sethook()
+            lc.die(lc.UNKNOWN, 'Killed by global timeout after '..lc.opts.timeout..'s')
+        end
+    end, '', 200)
+end
+
+for _,v in ipairs(addon_code) do
+    local success, err = pcall(v.code)
+    if not success then
+        lc.die(lc.UNKNOWN, "Failed to run addon '"..v.name.."' code: "..err)
+    end
+end
+
+lc.dump(perfdata, 'Dump perfdata')
+lc.dump(output_options, 'Dump output_options')
+
+-- set exit state and output from perfdatas if not already done by addon
+if #perfdata > 0 then
+    if not lc.exit_code then
+        lc.exit_code = lp.compute_perfdata(perfdata)
+    end
+    if not lc.exit_message then
+        lc.exit_message = lp.format_output(perfdata, output_options)..'|'..
+            lp.format_perfdata(perfdata, true)
+    end
+end
