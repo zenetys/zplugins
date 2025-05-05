@@ -1,0 +1,157 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+local lc = require 'libcheck'
+local lp = require 'libperfdata'
+require 'print_r'
+
+local default_parameter = {}
+local data = {}
+local perfdata = {}
+local env = setmetatable(
+    { lc = lc, lp = lp, default_parameter = default_parameter,
+      data = data, perfdata = perfdata },
+    { __index = _ENV })
+local addon_code = {}
+
+function load_addon(_, value)
+    if lc.lfs.attributes(value, 'mode') ~= 'file' then
+        if lc.lfs.attributes(lc.progdir..'/'..value, 'mode') == 'file' then
+            value = lc.progdir..'/'..value
+        else
+            lc.die(lc.UNKNOWN, 'Addon not found: '..value)
+        end
+    end
+
+    lc.debug('load addon: '..value)
+    local code, err = loadfile(value, nil, env)
+    if not code then
+        lc.die(lc.UNKNOWN, 'Failed to load addon: '..err)
+    end
+    local success, err = pcall(code, 'init')
+    if not success then
+        lc.die(lc.UNKNOWN, 'Failed to run addon optsdef: '..err)
+    end
+    lc.optsdef.rebuild()
+    table.insert(addon_code, { name = lc.basename(value), code = code })
+    return value
+end
+
+function load_addon_array(_, value)
+    for i in (value..','):gmatch('([^,]*),') do
+        load_addon(_, i)
+    end
+    return value
+end
+
+lc.checkname = 'SSH-EXEC'
+lc.shortdescr = 'Generic Nagios plugin to exec commands via SSH'
+
+lc.opts = {
+    parameter = {},
+}
+
+lc.optsdef = {
+    { short = 'a', long = 'addon', help = 'Custom addon script', call = load_addon_array },
+    { short = 'N', long = 'check-name', help = 'Set output prefix', call = function (o,v) lc.checkname = v; return v end },
+    { short = 'H', long = 'host', help = 'SSH host to connect to' },
+    { short = 'm', long = 'command', help = 'Bash code to execute (caller escape)' },
+    { short = 'f', long = 'command-file', help = 'Bash script to execute' },
+    { short = 's', long = 'ssh-command', help = 'Custom SSH command (caller escape)' },
+    { short = 'b', long = 'bash-command', help = 'Custom bash command (caller escape)' },
+    { short = 'o', long = 'ssh-option', help = 'Set indice for an ES backend', call = lc.setter_opt_array },
+    { short = 'r', long = 'passthrough', help = 'Print stdout, exit with command status', call = lc.setter_opt_boolean },
+    { short = 'p', long = 'parameter', help = 'Parameters (kv)', call = lc.setter_opt_kv },
+    { short = 'w', long = 'warning', help = 'Generic warning threshold (array)', call = lc.setter_opt_array },
+    { short = 'c', long = 'critical', help = 'Generic critical threshold (array)', call = lc.setter_opt_array },
+    { short = 't', long = 'timeout', help = 'Global timeout (s)', call = lc.setter_opt_number },
+}
+
+lc.init_opts()
+
+for k,v in pairs(default_parameter) do
+    if lc.opts.parameter[k] == nil then
+        lc.opts.parameter[k] = v
+    end
+end
+
+-- build command
+function sh_quote(value)
+    return "'"..value:gsub("'", "'\\''").."'"
+end
+local shell_code = nil
+if lc.opts.command_file and #lc.opts.command_file > 0 then
+    if lc.lfs.attributes(lc.opts.command_file, 'mode') ~= 'file' then
+        local candidate = lc.dirname(arg[0])..'/'..lc.opts.command_file
+        if lc.lfs.attributes(candidate, 'mode') ~= 'file' then
+            lc.die(lc.UNKNOWN, 'Addon not found: '..value)
+        end
+        lc.opts.command_file = candidate
+    end
+    shell_code = 'cat '..sh_quote(lc.opts.command_file)
+elseif lc.opts.command and #lc.opts.command > 0 then
+    shell_code = 'echo '..sh_quote(lc.opts.command)
+end
+if not shell_code then lc.die(lc.UNKNOWN, 'Nothing to execute') end
+shell_code = shell_code..' | '
+shell_code = shell_code..((lc.opts.ssh_command and #lc.opts.ssh_command > 0) and
+    lc.opts.ssh_command or 'ssh')
+for _,v in ipairs(lc.opts.ssh_option) do
+    shell_code = shell_code..' -o '..sh_quote(v)
+end
+shell_code = shell_code..' '..sh_quote(lc.opts.host)..' '
+shell_code = shell_code..((lc.opts.bash_command and #lc.opts.bash_command > 0) and
+    lc.opts.bash_command or 'bash')
+
+lc.pdebug('Shell code to execute: '..shell_code)
+
+-- handle global timeout
+if lc.opts.timeout then
+    local global_timeout = os.time() + lc.opts.timeout
+    debug.sethook(function()
+        if os.time() >= global_timeout then
+            debug.sethook()
+            lc.die(lc.UNKNOWN, 'Killed by global timeout after '..lc.opts.timeout..'s')
+        end
+    end, '', 200)
+end
+
+-- run command, fill the result map
+local pipe = io.popen(shell_code, 'r')
+for line in pipe:lines() do
+    lc.debug('line> '..line)
+    if lc.opts.passthrough then print(line)
+    else table.insert(data, line) end
+end
+local rc = { pipe:close() }
+if lc.opts.passthrough then
+    lc.on_exit_handlers = {}
+    os.exit(rc[3])
+elseif rc[3] ~= 0 then
+    lc.die(lc.UNKNOWN, 'Failed to retrieve data, command status '..rc[3])
+end
+
+for _,v in ipairs(addon_code) do
+    local success, err = pcall(v.code)
+    if not success then
+        lc.die(lc.UNKNOWN, "Failed to run addon '"..v.name.."' code: "..err)
+    end
+end
+
+lc.dump(data, 'Dump data after addons')
+lc.dump(perfdata, 'Dump perfdata')
+
+-- set exit state and output from perfdatas if not already done by addon
+if #perfdata > 0 then
+    if not lc.exit_code then
+        lc.exit_code = lp.compute_perfdata(perfdata)
+    end
+    if not lc.exit_message then
+        lc.exit_message = lp.format_output(perfdata)..'|'..
+            lp.format_perfdata(perfdata, true)
+    end
+end
