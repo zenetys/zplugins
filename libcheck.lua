@@ -24,6 +24,18 @@ function lc.basename(path)
 	return (path:match('([^/]*)$'));
 end
 
+-- Strip last component of a path. Note: the function return '.' if
+-- the given path does not contain any slash character.
+--
+-- @param path Input path.
+-- @return Dirname of the given path.
+--
+function lc.dirname(path)
+	local dir = (path:gsub('/[^/]+$', ''));
+    if dir == path then return '.' end
+    return dir
+end
+
 -- Index a string, keeping case: replace any non alphanumeric characters
 -- by an underscore.
 --
