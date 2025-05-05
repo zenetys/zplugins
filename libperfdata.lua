@@ -339,6 +339,7 @@ function LP.format_output(perfdata, fmt)
         local m_error = ''
 
         if (max and p.uom ~= '%') then
+            if p.value then m_value = LP.numfmt(p.value*100/max, '%')..' = '..m_value end
             m_extra = "/" .. LP.numfmt(p.max, p.uom)
         end
         if (p.state ~= LP.STATE_OK) then
