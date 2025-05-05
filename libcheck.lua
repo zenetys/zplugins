@@ -304,57 +304,43 @@ function lc.init_cache()
     lc.die(lc.UNKNOWN, 'Cache init failed - '..err)
 end
 
--- Load a JSON file from the cache directory. The parsed data must be
--- a table object to be valid. On failure, this function make the program
--- die with an UNKNOWN status.
+-- Load a JSON file from the cache directory, return the decoded JSON
+-- value, or nil if the cache does not exist or has expired. On failure,
+-- this function make the program die with an UNKNOWN status.
 --
--- @return Parsed table object on success, an empty table if the cache
---      file does not exit, program dies on failure.
+-- @param name Cache file name, default 'CACHE'
+-- @param ttl Cache file TTL in seconds, default 0 (no TTL)
 --
-function lc.load_cache(name)
-    local ret, err_load, err_rm
+-- @return Parsed JSON value on success, nil if the cache file does
+--      not exit or has expired. Program dies on failure.
+--
+function lc.load_cache(name, ttl)
+    if not name then name = 'CACHE' end
+    if not ttl then ttl = 0 end
+    if not lc.cachedir then lc.init_cache() end
+    local file = lc.cachedir..'/'..name
+    if not lfs.attributes(file, 'mode') then return nil end
+    if ttl ~= 0 then
+        local mtime, err = lfs.attributes(file, 'modification')
+        if not mtime then lc.die(lc.UNKNOWN, "Cache '"..name.."' get mtime failed: "..err) end
+        if mtime + ttl < lc.now then return nil end -- expired
+    end
+    local ret, err = lc.load_json(file)
+    if ret then return ret end
+    lc.die(lc.UNKNOWN, "Cache '"..name.."' load failed: "..err)
+end
+
+-- Save data to a JSON file in the cache directory. On failure, this
+-- function make the program die with an UNKNOWN status.
+--
+-- @return Nothing (nil). Program dies on failure.
+--
+function lc.save_cache(data, name)
     if not name then name = 'CACHE' end
     if not lc.cachedir then lc.init_cache() end
     local file = lc.cachedir..'/'..name
-    if not lfs.attributes(file, 'mode') then return {} end
-    ret, err_load = lc.load_json(file)
-    if type(ret) == 'table' then
-        return ret
-    elseif ret ~= nil then
-        err_load = 'Invalid data, table object required'
-    end
-    lc.perr('load_cache: '..name..': '..err_load)
-    ret, err_rm = os.remove(file)
-    if ret then
-        lc.perr('load_cache: '..name..': File removed')
-    else
-        lc.perr('load_cache: '..name..': File remove failed')
-        lc.perr('load_cache: '..name..': '..err_rm)
-    end
-    lc.die(lc.UNKNOWN, 'Cache load failed - '..name..': '..err_load)
-end
-
--- Save data to a JSON file in the cache directory. The data to save must
--- be a table object. On failure, this function make the program die with
--- an UNKNOWN status.
---
--- @return nil, program dies on failure.
---
-function lc.save_cache(data, name)
-    local file, ret, err
-    if not name then name = 'CACHE' end
-    if type(data) ~= 'table' then
-        err = 'Invalid data, table object required'
-        lc.perr('save_cache: '..name..': '..err)
-        lc.die(lc.UNKNOWN, 'Cache save failed - '..name..': '..err)
-    end
-    if not lc.cachedir then lc.init_cache() end
-    file = lc.cachedir..'/'..name
-    ret, err = lc.save_json(data, file)
-    if not ret then
-        lc.perr('save_cache: '..name..': '..err)
-        lc.die(lc.UNKNOWN, 'Cache save failed - '..name..': '..err)
-    end
+    local ret, err = lc.save_json(data, file)
+    if not ret then lc.die(lc.UNKNOWN, "Cache '"..name.."' save failed: "..err) end
 end
 
 -- Print usage help message on stdout and exit.
@@ -762,6 +748,7 @@ lc.on_exit_handlers = { default_on_exit }
 lc.cjson = cjson
 lc.lfs = lfs
 lc.snmp = nil
+lc.now = os.time()
 
 setmetatable(lc, lc_meta)
 
