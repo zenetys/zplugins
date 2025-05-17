@@ -319,7 +319,8 @@ function LP.format_perfdata(perfdata, raw)
     return s
 end
 
-function LP.format_output(perfdata)
+function LP.format_output(perfdata, opts)
+    if not opts then opts = {} end
     -- build auto output from computed array
     local s = ""
     local msg = {}
@@ -360,7 +361,7 @@ function LP.format_output(perfdata)
         end
     end
 
-    return table.concat(output, ", ");
+    return table.concat(output, ", ")..(opts.append or '');
 end
 
 return LP
