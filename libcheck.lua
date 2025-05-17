@@ -737,6 +737,7 @@ lc.status_prio = {
     [lc.UNKNOWN] = 2
 }
 
+lc.progdir = lc.dirname(arg[0])
 lc.progname = lc.basename(arg[0])
 lc.checkname = 'CHECK'
 lc.shortdescr = nil
