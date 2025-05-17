@@ -62,6 +62,7 @@ function build_cmd(self)
     if self:o('cookiefile') then arg = arg..' --cookie '..lu.sh(self:o('cookiefile')) end
     if self:o('cookiejar') then arg = arg..' --cookie-jar '..lu.sh(self:o('cookiejar')) end
     if self:o('verbose') then arg = arg..' --verbose' end
+    if self:o('connecttimeout') then arg = arg..' --connect-timeout '..lu.sh(self:o('connecttimeout')) end
     if self:o('timeout') then arg = arg..' --max-time '..lu.sh(self:o('timeout')) end
     if self:o('username') and self:o('password') then
         arg = arg..' --user '..lu.sh(self:o('username'))..':'..lu.sh(self:o('password'))
