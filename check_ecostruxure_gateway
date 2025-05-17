@@ -285,7 +285,7 @@ function plugin_mode_device_sensor()
         }
         local perfdata_state = lp.compute_perfdata(perfdata)
         local perfdata_format = lp.format_perfdata(perfdata)
-        local perfdata_output = lp.format_output(perfdata, '%s%s %s%s%s')
+        local perfdata_output = lp.format_output(perfdata)
         lc.exit_code = lc.worsen_status(lc.exit_code, perfdata_state)
         lc.exit_message = lc.exit_message..', '..perfdata_output..'|'..perfdata_format
     end

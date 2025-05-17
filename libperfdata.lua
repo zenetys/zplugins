@@ -319,9 +319,8 @@ function LP.format_perfdata(perfdata, raw)
     return s
 end
 
-function LP.format_output(perfdata, fmt)
+function LP.format_output(perfdata)
     -- build auto output from computed array
-    if not fmt then fmt = '%s%s: %s%s%s' end
     local s = ""
     local msg = {}
 
@@ -345,7 +344,7 @@ function LP.format_output(perfdata, fmt)
         if (p.state ~= LP.STATE_OK) then
             m_error = '**'
         end
-        local m = fmt:format(m_error, m_name, m_value, m_extra, m_error)
+        local m = ('%s%s: %s%s%s'):format(m_error, m_name, m_value, m_extra, m_error)
 
         if (p.state == nil) then
             table.insert(msg[LP.STATE_UNKNOWN], m)
