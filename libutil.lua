@@ -228,4 +228,15 @@ function util.fbind(fn, ...)
     end
 end
 
+function util.dhms(s)
+    local d, h, m
+    d = math.floor(s/86400); s = s - d*86400
+    h = math.floor(s/3600); s = s - h*3600
+    m = math.floor(s/60); s = s - m*60
+    return (d>0 and d..'d' or '')..
+           (h>0 and h..'h' or '')..
+           (m>0 and m..'m' or '')..
+           (s..'s')
+end
+
 return util
