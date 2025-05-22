@@ -1,0 +1,244 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+local lc = require 'libcheck'
+local lp = require 'libperfdata'
+local lu = require 'libutil'
+ZCurl = require 'libzcurl'
+require 'print_r'
+
+local ctx = {
+    perfdata = {},
+    default_parameter = {},
+    output_options = {},
+}
+
+local env = setmetatable(
+    { ctx = ctx, lc = lc, lp = lp, lu = lu, ZCurl = ZCurl },
+    { __index = _ENV })
+local addon_code = {}
+
+function load_addon(_, value)
+    if lc.lfs.attributes(value, 'mode') ~= 'file' then
+        if lc.lfs.attributes(lc.progdir..'/'..value, 'mode') == 'file' then
+            value = lc.progdir..'/'..value
+        else
+            lc.die_unkn('Addon not found: '..value)
+        end
+    end
+
+    lc.debug('load addon: '..value)
+    local code, err = loadfile(value, nil, env)
+    if not code then
+        lc.die_unkn('Failed to load addon: '..err)
+    end
+    local success, err = pcall(code, 'init')
+    if not success then
+        lc.die_unkn('Failed to run addon init: '..err)
+    end
+    lc.optsdef.rebuild()
+    table.insert(addon_code, { name = lc.basename(value), code = code })
+    return value
+end
+
+function load_addon_array(_, value)
+    for i in (value..','):gmatch('([^,]*),') do
+        load_addon(_, i)
+    end
+    return value
+end
+
+lc.checkname = 'REST'
+lc.shortdescr = 'Generic Nagios plugin to query an HTTP JSON REST API'
+lc.progtype = 'rest'
+
+lc.opts = {
+    parameter = {},
+}
+
+lc.optsdef = {
+    { short = 'U', long = 'url', help = 'Request URL' },
+    { short = 'B', long = 'baseurl', help = 'Default base URL' },
+    { short = 'r', long = 'header', call = lc.setter_opt_array, help = 'Request header(s)' },
+    { short = 'n', long = 'username', help = 'Authentication username' },
+    { short = 'p', long = 'password', help = 'Authentication password' },
+    { short = 'd', long = 'post-data', help = 'Request data to POST, otherwise GET' },
+    { short = 'X', long = 'method', help = 'Force request method, eg: GET when using --post-data' },
+    { short = 'L', long = 'follow', call = lc.setter_opt_boolean, help = 'Follow location' },
+    { short = 's', long = 'parameter', call = lc.setter_opt_kv, help = 'Replace ${key} by value in --post-data, format: key=value' },
+    { short = 'l', long = 'label', call = lc.setter_opt_array, help = 'Metric(s) name' },
+    { short = 'a', long = 'addon', help = 'Custom addon script', call = load_addon_array },
+    { short = 'w', long = 'warning', call = lc.setter_opt_array, help = 'Metric(s) warning' },
+    { short = 'c', long = 'critical', call = lc.setter_opt_array, help = 'Metric(s) critical' },
+    { short = 'u', long = 'uom', call = lc.setter_opt_array, help = 'Metric(s) uom' },
+    { short = 'm', long = 'min', call = lc.setter_opt_array, help = 'Metric(s) min' },
+    { short = 'M', long = 'max', call = lc.setter_opt_array, help = 'Metric(s) max' },
+    { short = 'x', long = 'null-value', call = lc.setter_opt_array, help = 'Metric(s) null value' },
+    { short = 't', long = 'timeout', call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
+    { short = 'R', long = 'netrc', call = lc.setter_opt_iboolean, help = 'Enable ~/.netrc' },
+    { short = 'A', long = 'raw', call = lc.setter_opt_boolean, help = 'Raw data, do not decode JSON' },
+    { short = 'j', long = 'cookies', call = lc.setter_opt_boolean, help = 'Store and reuse cookies' },
+    { short = 'pt', long = 'perfdata-time', call = lc.setter_opt_number, help = 'Add curl time perfdata (0: never, 1: always, 2: auto)' },
+    { short = 'N', long = 'check-name', call = function (o,v) lc.checkname = v; return v end, help = 'Set output prefix' },
+}
+
+lc.init_opts()
+
+-- defaults
+if not lc.opts.parameter then lc.opts.parameter = {} end
+if not lc.opts.label then lc.opts.label = {} end
+if not lc.opts.warning then lc.opts.warning = {} end
+if not lc.opts.critical then lc.opts.critical = {} end
+if not lc.opts.uom then lc.opts.uom = {} end
+if not lc.opts.min then lc.opts.min = {} end
+if not lc.opts.max then lc.opts.max = {} end
+if not lc.opts.null_value then lc.opts.null_value = {} end
+if not lc.opts.timeout then lc.opts.timeout = 10 end
+if not lc.opts.netrc then lc.opts.netrc = 0 end
+if not lc.opts.raw then lc.opts.raw = false end
+if not lc.opts.perfdata_time then lc.opts.perfdata_time = 2 end
+
+for k,v in pairs(ctx.default_parameter) do
+    if lc.opts.parameter[k] == nil then
+        lc.opts.parameter[k] = v
+    end
+end
+
+ctx.zcurl_default_opts = {
+    ssl_verifypeer = 0,
+    ssl_verifyhost = 0,
+    timeout = lc.opts.timeout,
+    verbose = lc.opts.debug,
+    followlocation = true,
+    failonerror = true,
+    netrc = lc.opts.netrc,
+    cookiefile = '', -- in memory cookies
+    customrequest = lc.opts.method,
+    followlocation = lc.opts.follow,
+    username = lc.opts.username,
+    password = lc.opts.password,
+    writefunction = ZCurl._store_response('body'),
+}
+
+if lc.opts.header and #lc.opts.header > 0 then
+    ctx.zcurl_default_opts.httpheader = lc.opts.header
+end
+
+if lc.opts.cookies then
+    lc.init_cache()
+    ctx.zcurl_default_opts.cookiefile = lc.cachedir..'/cookies'
+    ctx.zcurl_default_opts.cookiejar = lc.cachedir..'/cookies'
+end
+
+ctx.zcurl = ZCurl.new(ctx.zcurl_default_opts)
+
+-- helpers
+function build_url(url)
+    if not url or #url == 0 then url = '/'
+    elseif url:sub(1, 1) ~= '/' then url = '/'..url end
+    if not url:find('://') and lc.opts.baseurl and #lc.opts.baseurl > 0 then
+        url = lc.opts.baseurl..url
+    end
+    return url
+end
+
+function build_post_data(post_data, vars)
+    if post_data then
+        if post_data:sub(1, 1) == '@' then
+            local fd, err = io.open(post_data:sub(2), 'rb')
+            if not fd then lc.die_unkn('Cannot open data file: '..err) end
+            post_data, err = fd:read('*a')
+            fd:close()
+            if not post_data then lc.die_unkn('Cannot read data file: '..err) end
+        end
+        local err
+        post_data, err = lu.expand(post_data, vars, 'post-data')
+        if not post_data then lc.die_unkn(err) end
+    end
+    return post_data
+end
+
+function query(zcurl, zcurlopts, decode, die_status)
+    if not die_status then die_status = lc.UNKNOWN end
+    zcurl:resetopts()
+    zcurl:setopts(zcurlopts)
+    local success, err = zcurl:perform()
+    if not success then lc.die(die_status, 'Query failed: '..err) end
+    lc.dump(zcurl.response.body, 'Dump response data')
+    if decode then
+        if decode == 'json' or (decode == true and zcurl.info.content_type:find('/json')) then
+            ctx.zcurl.response.body_decoded, err = lc.cjson.decode(ctx.zcurl.response.body)
+            if not ctx.zcurl.response.body_decoded then lc.die(die_status, 'JSON decode failed: '..err) end
+        else lc.die(die_status, 'Unsupported data decode') end
+        lc.dump(zcurl.response.body_decoded, 'Dump decoded response data')
+    end
+    ctx.curl_total_time = (ctx.curl_total_time or 0) + zcurl.info.total_time
+end
+
+-- query
+if lc.opts.url and #lc.opts.url > 0 then
+    local url = build_url(lc.opts.url)
+    local post_data = build_post_data(lc.opts.post_data, lc.opts.parameter)
+    query(ctx.zcurl, { url = url, postfields = post_data }, not lc.opts.raw and 'json')
+
+    if ctx.zcurl.response.body_decoded then
+        -- path[:label]
+        for i = 1, #lc.opts.label do
+            -- path is split[3], label is split[4]
+            split = { lc.opts.label[i]:find('^([^:]+):?(.*)') }
+            if #split == 0 then goto continue end
+
+            local label = #split[4] > 0 and split[4] or split[3]
+            local value, err = lu.getpath(ctx.zcurl.response.body_decoded, split[3],
+                label, nil, tonumber(lc.opts.null_value[i]))
+            if (err) then lc.pdebug('getpath: '..err) end
+
+            table.insert(ctx.perfdata, {
+                name = label,
+                value = value,
+                warning = lc.opts.warning[i],
+                critical = lc.opts.critical[i],
+                uom = lc.opts.uom[i],
+                min = lc.opts.min[i],
+                max = lc.opts.max[i],
+            })
+            ::continue::
+        end
+    end
+end
+
+-- addons
+for _,v in ipairs(addon_code) do
+    local success, err = pcall(v.code)
+    if not success then
+        lc.die(lc.UNKNOWN, "Failed to run addon '"..v.name.."' code: "..err)
+    end
+end
+
+-- add curl time perfdata
+if lc.opts.perfdata_time == 1 or (lc.opts.perfdata_time == 2 and #ctx.perfdata == 0) then
+    table.insert(ctx.perfdata, {
+        name = 'time',
+        value = ctx.curl_total_time,
+        uom = 's',
+    })
+end
+lc.dump(ctx.perfdata, 'Dump perfdata')
+
+-- set exit state and output from perfdata if not already done by addon
+-- and if there are perfdata available
+if not lc.exit_code then
+    if #ctx.perfdata > 0 then
+        lc.exit_code = lp.compute_perfdata(ctx.perfdata)
+    end
+end
+if not lc.exit_message then
+    if #ctx.perfdata > 0 then
+        lc.exit_message = lp.format_output(ctx.perfdata, ctx.output_options)..'|'..
+            lp.format_perfdata(ctx.perfdata, true)
+    end
+end
