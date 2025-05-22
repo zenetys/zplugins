@@ -486,6 +486,9 @@ function lc.init_opts()
     local arg2opt = {}
     local i = 1
 
+    lc.optsdef.get = function(x)
+        return arg2opt[x]
+    end
     lc.optsdef.rebuild = function()
         for k, v in ipairs(lc.optsdef) do
             for _,o in ipairs({ 'long', 'short' }) do
