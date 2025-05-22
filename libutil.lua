@@ -247,4 +247,16 @@ function util.dhms(s)
            (s..'s')
 end
 
+function util.human2num(text, mult)
+    if not text then return nil end
+    local pow = { k=1, K=1, M=2, G=3, T=4, P=4 }
+    local num, suffix, unit = text:match('([+-]?[%d.]+)%s*([kKMGTP]?)(.?)')
+    if not mult then
+        if unit:sub(1,1):match('[iB]') then mult = 1024
+        else mult = 1000 end
+    end
+    num = tonumber(num)
+    return num * (mult ^ (pow[suffix] or 0))
+end
+
 return util
