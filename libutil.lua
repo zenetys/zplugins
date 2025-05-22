@@ -177,6 +177,14 @@ end
 function util.acopy(...) return _tcopy(true, table.unpack({...})) end
 function util.tcopy(...) return _tcopy(false, table.unpack({...})) end
 
+function util.mmatch(input, patterns)
+    for n,p in ipairs(patterns) do
+        local cap = { input:match(p) }
+        if #cap > 0 then return n, cap end
+    end
+    return nil, {}
+end
+
 function util.date2ts(input, want_ms)
     -- assume it is already a timestamp if number
     local ts = tonumber(input)
