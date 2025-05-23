@@ -396,6 +396,7 @@ function lc.setter_opt_iboolean(opt, value)
 end
 
 function lc.setter_opt_array(opt, value)
+    if not value then return nil end -- case for missing argument
     if type(lc.opts[opt.key]) ~= 'table' then lc.opts[opt.key] = {} end
     -- value:gmatch('[^,]*') wont work on lua < 5.3.3
     for i in (value..','):gmatch('([^,]*),') do table.insert(lc.opts[opt.key], i) end
