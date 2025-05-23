@@ -16,6 +16,8 @@ if arg[1] == 'init' then
         help = 'PVE period (s) from now', call = lc.setter_opt_number })
     table.insert(lc.optsdef, { short = 'ps', long = 'pve-scheduled',
         help = 'Ignore guests without scheduled backup', call = lc.setter_opt_boolean })
+    table.insert(lc.optsdef, { short = 's', long = 'syslog',
+        help = 'Pass 1 to enable emitting stats via syslog', call = lc.setter_opt_boolean })
     return true
 end
 
@@ -161,6 +163,7 @@ end
 
 if not lc.opts.pve_node then lc.opts.pve_node = 'localhost' end
 if not lc.opts.pve_period then lc.opts.pve_period = 86400*2 end
+if not lc.opts.syslog then lc.opts.syslog = false end
 
 local vms_scheduled
 if lc.opts.pve_scheduled then
@@ -208,23 +211,25 @@ lc.dump(last_by_vmid_storage, 'Last backup per vmid + storage')
 lc.dump(stats_by_storage, 'Stats by storage')
 
 -- emit json logs
-lu.syslog.init('pve-backup-tasks')
-local log_emitted = lc.load_cache('log_emitted') or {}
-for vmid,o in pairs(last_by_vmid_storage) do
-    for storage,backup in pairs(o) do
-        local cache_key = backup.task..','..backup.vmid
-        if not log_emitted[cache_key] then
-            lu.syslog.info(lc.cjson.encode(backup))
-            log_emitted[cache_key] = backup.endtime
+if lc.opts.syslog then
+    lu.syslog.init('pve-backup-tasks')
+    local log_emitted = lc.load_cache('log_emitted') or {}
+    for vmid,o in pairs(last_by_vmid_storage) do
+        for storage,backup in pairs(o) do
+            local cache_key = backup.task..','..backup.vmid
+            if not log_emitted[cache_key] then
+                lu.syslog.info(lc.cjson.encode(backup))
+                log_emitted[cache_key] = backup.endtime
+            end
         end
     end
-end
-for k,endtime in pairs(log_emitted) do
-    if endtime < lc.now - lc.opts.pve_period*2 then
-        log_emitted[k] = nil
+    for k,endtime in pairs(log_emitted) do
+        if endtime < lc.now - lc.opts.pve_period*2 then
+            log_emitted[k] = nil
+        end
     end
+    lc.save_cache(log_emitted, 'log_emitted')
 end
-lc.save_cache(log_emitted, 'log_emitted')
 
 -- total, success, failed backups
 local total_backups = 0
