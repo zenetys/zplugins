@@ -159,7 +159,7 @@ function parse_task_log(task, timezone)
     return output
 end
 
-if not lc.opts.pve_node or #lc.opts.pve_node == 0 then lc.opts.pve_node = 'localhost' end
+if not lc.opts.pve_node then lc.opts.pve_node = 'localhost' end
 if not lc.opts.pve_period then lc.opts.pve_period = 86400*2 end
 
 local vms_scheduled
