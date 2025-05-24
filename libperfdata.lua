@@ -342,6 +342,7 @@ function LP.format_output(perfdata, opts)
             if p.value then m_value = LP.numfmt(p.value*100/max, '%')..' = '..m_value end
             m_extra = "/" .. LP.numfmt(p.max, p.uom)
         end
+        if p.extra then m_extra = m_extra..p.extra end
         if (p.state ~= LP.STATE_OK) then
             m_error = '**'
         end
