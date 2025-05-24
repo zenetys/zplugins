@@ -62,6 +62,7 @@ for i = #not_backed_up, 1, -1 do
     if lc.opts.pve_node then
         if not guests then guests = get_guests() end
         if not guests[g.vmid] then
+            lc.pdebug('Skip '..g.name..' ('..g.vmid..'), not on requested node')
             not_backed_up[i] = nil
             --table.remove(not_backed_up, i)
             goto continue
@@ -72,17 +73,21 @@ for i = #not_backed_up, 1, -1 do
         if not guests then guests = get_guests() end
         if not guests[g.vmid] or not guests[g.vmid].tags or
            not lu.mmatch(guests[g.vmid].tags, lc.opts.pve_include_tag) then
+            lc.pdebug('Skip '..g.name..' ('..g.vmid..'), include tag no-match, guest tags <'..
+                (guests[g.vmid].tags or '')..'>')
             not_backed_up[i] = nil
             goto continue
         end
     end
     -- exclude based on vmname patterns
     if lc.opts.pve_exclude_name and lu.mmatch(g.name, lc.opts.pve_exclude_name) then
+        lc.pdebug('Skip '..g.name..' ('..g.vmid..'), exclude name match')
         not_backed_up[i] = nil
         goto continue
     end
     -- exclude based on vmid list
     if lc.opts.pve_exclude_id and lc.opts.pve_exclude_id[g.vmid] then
+        lc.pdebug('Skip '..g.name..' ('..g.vmid..'), exclude vmid match')
         not_backed_up[i] = nil
         goto continue
     end
@@ -91,10 +96,13 @@ for i = #not_backed_up, 1, -1 do
         if not guests then guests = get_guests() end
         if guests[g.vmid] and guests[g.vmid].tags and
            lu.mmatch(guests[g.vmid].tags, lc.opts.pve_exclude_tag) then
+            lc.pdebug('Skip '..g.name..' ('..g.vmid..'), exclude tag match, guest tags <'..
+                (guests[g.vmid].tags or '')..'>')
             not_backed_up[i] = nil
             goto continue
         end
     end
+    lc.pdebug('Keep '..g.name..' ('..g.vmid..')')
     ::continue::
 end
 
