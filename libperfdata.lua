@@ -308,8 +308,9 @@ function LP.format_perfdata(perfdata, opts)
 
     -- build perfdata from computed array
     local s = ""
-    for _, p in pairs(perfdata) do
-        local v = LP.numfmt(p.value, p.uom, nil, nil, nil, raw)
+    for i, p in ipairs(perfdata) do
+        if opts.limit and i > opts.limit then break end
+
         local v = LP.numfmt(p.value, p.uom, nil, nil, nil, opts.raw)
         local max = LP.numfmt(p.max)
         local n, b = LP.numbase(v)
@@ -333,7 +334,14 @@ function LP.format_output(perfdata, opts)
         msg[v] = {}
     end
 
-    for _, p in pairs(perfdata) do
+    for i, p in ipairs(perfdata) do
+        if opts.limit and i > opts.limit then
+            if i > 1 then
+                opts.append = ', ...'..(opts.append and ' '..opts.append or '')
+            end
+            break
+        end
+
         local v = LP.numfmt(p.value, p.uom)
         local max = LP.numfmt(p.max)
 
