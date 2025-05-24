@@ -4,6 +4,9 @@ if arg[1] == 'init' then
     lc.optsdef.get('baseurl').required = true
     table.insert(lc.optsdef, { short = 'pn', long = 'pve-node',
         help = 'PVE node name' })
+    table.insert(lc.optsdef, { short = 'pit', long = 'pve-include-tag',
+        call = lc.setter_opt_array,
+        help = 'Include guests by tag with lua pattern (array)' })
     table.insert(lc.optsdef, { short = 'pxn', long = 'pve-exclude-name',
         call = lc.setter_opt_array,
         help = 'Exclude guests by vmname with lua pattern (array)' })
@@ -61,6 +64,15 @@ for i = #not_backed_up, 1, -1 do
         if not guests[g.vmid] then
             not_backed_up[i] = nil
             --table.remove(not_backed_up, i)
+            goto continue
+        end
+    end
+    -- include based on tag patterns
+    if lc.opts.pve_include_tag then
+        if not guests then guests = get_guests() end
+        if not guests[g.vmid] or not guests[g.vmid].tags or
+           not lu.mmatch(guests[g.vmid].tags, lc.opts.pve_include_tag) then
+            not_backed_up[i] = nil
             goto continue
         end
     end
