@@ -96,6 +96,7 @@ local UOM_TMULT = {
 local UOM_UNIT = {
     [""] = "",
     ["B"] = "B",
+    ["Bps"] = "Bps",
     ["Bi"] = "Bi",
     ["auto"] = "",
     ["si"] = "",
@@ -111,6 +112,7 @@ local UOM_BASE = {
     ["iec-i"] = 1024,
     ["B"] = 1024,
     ["Bi"] = 1024,
+    ["Bps"] = 1024,
     ["o"] = 1024,
     ["be"] = 1024,
 }
