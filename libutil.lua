@@ -185,6 +185,13 @@ function util.mmatch(input, patterns)
     return nil, {}
 end
 
+function util.anyof(input, values)
+    for n,v in ipairs(values) do
+        if input == v then return n, v end
+    end
+    return nil, nil
+end
+
 function util.date2ts(input, want_ms)
     -- assume it is already a timestamp if number
     local ts = tonumber(input)
