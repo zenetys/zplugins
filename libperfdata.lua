@@ -302,19 +302,23 @@ function LP.compute_perfdata(perfdata, initial_state)
     return state
 end
 
-function LP.format_perfdata(perfdata, raw)
+function LP.format_perfdata(perfdata, opts)
+    -- compat arg #2 as opts.raw
+    if type(opts) ~= 'table' then opts = { raw = opts } end
+
     -- build perfdata from computed array
     local s = ""
     for _, p in pairs(perfdata) do
         local v = LP.numfmt(p.value, p.uom, nil, nil, nil, raw)
+        local v = LP.numfmt(p.value, p.uom, nil, nil, nil, opts.raw)
         local max = LP.numfmt(p.max)
         local n, b = LP.numbase(v)
 
         s = s .. "'" .. p.name .. "'=" .. (v or "U") .. ";"
-        s = s .. (LP.numfmt(p.warning, nil, nil, b, max, raw) or "") .. ";"
-        s = s .. (LP.numfmt(p.critical, nil, nil, b, max, raw) or "") .. ";"
-        s = s .. (LP.numfmt(p.min, nil, nil, b, nil, raw) or "") .. ";"
-        s = s .. (LP.numfmt(p.max, nil, nil, b, nil, raw) or "") .. " "
+        s = s .. (LP.numfmt(p.warning, nil, nil, b, max, opts.raw) or "") .. ";"
+        s = s .. (LP.numfmt(p.critical, nil, nil, b, max, opts.raw) or "") .. ";"
+        s = s .. (LP.numfmt(p.min, nil, nil, b, nil, opts.raw) or "") .. ";"
+        s = s .. (LP.numfmt(p.max, nil, nil, b, nil, opts.raw) or "") .. " "
     end
     return s
 end
