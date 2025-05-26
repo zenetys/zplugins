@@ -85,6 +85,7 @@ local output = {
     final = {},
 }
 local total = 0
+local total_verify = 0
 lc.exit_code = lc.OK
 
 for ds,guests in pairs(backup_guests_by_ds) do
@@ -115,6 +116,7 @@ for ds,guests in pairs(backup_guests_by_ds) do
                 table.insert(output.age_ok, guest_text)
             end
             if content_by_ds[ds][g.id].format:sub(1, 4) == 'pbs-' then
+                total_verify = total_verify + 1
                 if content_by_ds[ds][g.id].verification and
                    content_by_ds[ds][g.id].verification.state and
                    content_by_ds[ds][g.id].verification.state == 'ok' then
@@ -151,10 +153,10 @@ if #output.age_ok > 0 then
     table.insert(output.final, 'Backup fresh: '..#output.age_ok..'/'..total)
 end
 if #output.need_verify > 0 then
-    table.insert(output.final, 'Need verify: '..#output.need_verify..'/'..total)
+    table.insert(output.final, 'Need verify: '..#output.need_verify..'/'..total_verify)
 end
 if #output.verify_ok > 0 then
-    table.insert(output.final, 'Verified: '..#output.verify_ok..'/'..total)
+    table.insert(output.final, 'Verified: '..#output.verify_ok..'/'..total_verify)
 end
 if #output.final == 0 then
     table.insert(output.final, 'Nothing to check')
