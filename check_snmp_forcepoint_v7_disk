@@ -1,0 +1,74 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+lc = require 'libcheck'
+lp = require 'libperfdata'
+require 'print_r'
+
+lc.checkname = ''
+lc.shortdescr = 'Check disk usage on Forcepoint v7 engines'
+lc.progtype = 'snmp'
+
+lc.optsdef = {
+    { short = 'w', long = 'warning', help = 'Warning threshold' },
+    { short = 'c', long = 'critical', help = 'Critical threshold' },
+}
+
+lc.init_opts()
+
+local oid_fwDiskStatsEntry = '1.3.6.1.4.1.47565.1.1.1.11.3.1'
+local oid2name = {
+    [oid_fwDiskStatsEntry..'.3'] = 'fwMountPointName',
+    [oid_fwDiskStatsEntry..'.4'] = 'fwPartitionSize',
+    [oid_fwDiskStatsEntry..'.5'] = 'fwPartitionUsed',
+}
+
+sess = lc.snmpopen();
+data, err = lc.snmpwalk(sess, oid_fwDiskStatsEntry)
+if not data then lc.die_unkn('Failed to get data - '..err) end
+
+local by_index = {}
+for i,v in ipairs(data) do
+    local index = tonumber(v.oid:match('%d+$'))
+    if not index then goto continue end
+    local name = oid2name[v.oid:match('(.+)%.%d+$')]
+    if not name then goto continue end
+    if not by_index[index] then by_index[index] = { _index = index } end
+    if v.type == 16 then by_index[index][name] = v.value
+    else by_index[index][name] = v.value:tonumber() end
+    ::continue::
+end
+
+local perfdata = {}
+for _,v in pairs(by_index) do
+    -- exclude / (slash) mounted read-only 100% used because it's a firmware
+    if v.fwMountPointName == '/' then goto continue end
+
+    table.insert(perfdata, {
+        label = v.fwMountPointName,
+        name = 'used_'..v.fwMountPointName,
+        value = v.fwPartitionUsed*1024,
+        max = v.fwPartitionSize*1024,
+        uom = 'B',
+        warning = lc.opts.warning,
+        critical = lc.opts.critical,
+        _raw = v,
+    })
+    ::continue::
+end
+
+-- default sort by snmp index
+table.sort(perfdata, function (a, b)
+    if not a._raw._index then return false end
+    if not b._raw._index then return true end
+    return a._raw._index < b._raw._index
+end)
+lc.dump(perfdata, 'Dump perfdata')
+
+lc.exit_code = lp.compute_perfdata(perfdata)
+lc.exit_message = lp.format_output(perfdata)..'|'..
+    lp.format_perfdata(perfdata, { raw = true })
