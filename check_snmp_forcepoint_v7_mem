@@ -1,0 +1,74 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+lc = require 'libcheck'
+lp = require 'libperfdata'
+require 'print_r'
+
+lc.checkname = ''
+lc.shortdescr = 'Check memory usage on Forcepoint v7 engines'
+lc.progtype = 'snmp'
+
+lc.optsdef = {
+    { short = 'w', long = 'warning', help = 'Warning threshold' },
+    { short = 'c', long = 'critical', help = 'Critical threshold' },
+}
+
+lc.init_opts()
+
+local oid_name = {
+    'fwMemBytesTotal',
+    'fwMemBytesUsed',
+    'fwMemBytesUnused',
+    'fwMemBytesBuffers',
+    'fwMemBytesCached',
+    'fwMemBytesSReclaimable',
+    'fwMemBytesAvailable',
+}
+local oid_num = {
+    '.1.3.6.1.4.1.47565.1.1.1.11.2.4.0',
+    '.1.3.6.1.4.1.47565.1.1.1.11.2.5.0',
+    '.1.3.6.1.4.1.47565.1.1.1.11.2.6.0',
+    '.1.3.6.1.4.1.47565.1.1.1.11.2.7.0',
+    '.1.3.6.1.4.1.47565.1.1.1.11.2.8.0',
+    '.1.3.6.1.4.1.47565.1.1.1.11.2.9.0',
+    '.1.3.6.1.4.1.47565.1.1.1.11.2.10.0',
+}
+
+sess = lc.snmpopen();
+data, err = lc.snmpget(sess, oid_num)
+if not data then lc.die_unkn('Failed to get data - '..err) end
+for i,name in ipairs(oid_name) do data[name] = data[i].value:tonumber() end
+
+local perfdata = {
+    {
+        label = 'RAM used (-buffers/cached)',
+        name = 'used',
+        value = data.fwMemBytesUsed - data.fwMemBytesBuffers - data.fwMemBytesCached,
+        max = data.fwMemBytesTotal,
+        uom = 'B',
+        warning = lc.opts.warning,
+        critical = lc.opts.critical,
+    },
+    {
+        label = 'Buffers',
+        name = 'buffers',
+        value = data.fwMemBytesBuffers,
+        max = data.fwMemBytesTotal,
+        uom = 'B',
+    },
+    {
+        label = 'Cached',
+        name = 'cached',
+        value = data.fwMemBytesCached,
+        max = data.fwMemBytesTotal,
+        uom = 'B',
+    },
+}
+
+lc.exit_code = lp.compute_perfdata(perfdata)
+lc.exit_message = lp.format_output(perfdata)..'|'..lp.format_perfdata(perfdata, { raw = true })
