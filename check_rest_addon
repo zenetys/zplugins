@@ -70,7 +70,7 @@ lc.optsdef = {
     { short = 'X', long = 'method', help = 'Force request method, eg: GET when using --post-data' },
     { short = 'L', long = 'follow', call = lc.setter_opt_boolean, help = 'Follow location' },
     { short = 's', long = 'parameter', call = lc.setter_opt_kv, help = 'Replace ${key} by value in --post-data, format: key=value' },
-    { short = 'l', long = 'label', call = lc.setter_opt_array, help = 'Metric(s) name' },
+    { short = 'l', long = 'label', call = lc.setter_opt_array, help = 'Metric(s) name, path[:label]' },
     { short = 'a', long = 'addon', help = 'Custom addon script', call = load_addon_array },
     { short = 'w', long = 'warning', call = lc.setter_opt_array, help = 'Metric(s) warning' },
     { short = 'c', long = 'critical', call = lc.setter_opt_array, help = 'Metric(s) critical' },
