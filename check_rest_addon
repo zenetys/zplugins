@@ -138,10 +138,11 @@ ctx.zcurl = ZCurl.new(ctx.zcurl_default_opts)
 
 -- helpers
 function build_url(url)
-    if not url or #url == 0 then url = '/'
-    elseif url:sub(1, 1) ~= '/' then url = '/'..url end
-    if not url:find('://') and lc.opts.baseurl and #lc.opts.baseurl > 0 then
-        url = lc.opts.baseurl..url
+    if not url or #url == 0 then url = '/' end
+    if not url:find('://') then
+        if url:sub(1, 1) ~= '/' then url = '/'..url end
+        if lc.opts.baseurl and #lc.opts.baseurl > 0 then url = lc.opts.baseurl..url
+        else lc.die_unkn('Invalid URL: '..url) end
     end
     return url
 end
