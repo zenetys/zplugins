@@ -352,6 +352,7 @@ function lc.exit_usage()
     if lc.shortdescr then print(lc.shortdescr) end
     print('\nAvailable options:')
     for _,v in ipairs(lc.optsdef) do
+        if not v.help then goto continue end
         local left, flags = '', ''
         if v.short then
             left = left..'-'..v.short
@@ -363,6 +364,7 @@ function lc.exit_usage()
         flags = flags..(v.arg ~= false and 'V' or ' ')
         flags = flags..(v.required and 'R' or ' ')
         print(string.format('  %-27s %-5s %s', left, flags, v.help))
+        ::continue::
     end
     print('\nV: options requires a value argument\nR: options is mandatory')
     if lc.usage_notes then print('\n'..lc.usage_notes) end
@@ -449,14 +451,18 @@ function lc.init_type_snmp()
         { short = 'a', long = 'authproto',
           help = 'SNMP v3 authentification protocol: MD5|SHA' })
     table.insert(lc.optsdef,
-        { short = 'A', long = 'authpassword',
+        { short = 'A', long = 'authpass',
           help = 'SNMP v3 authentification password' })
     table.insert(lc.optsdef,
         { short = 'x', long = 'privproto',
           help = 'SNMP v3 privacy protocol: MD5|SHA' })
     table.insert(lc.optsdef,
-        { short = 'X', long = 'privpassword',
+        { short = 'X', long = 'privpass',
           help = 'SNMP v3 privacy password' })
+
+    -- backward compatibility
+    table.insert(lc.optsdef, { long = 'authpassword', key = 'authpass' })
+    table.insert(lc.optsdef, { long = 'privpassword', key = 'privpass' })
 end
 
 -- Parse command line arguments against the optsdef array and put results
