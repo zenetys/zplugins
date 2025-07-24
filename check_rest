@@ -185,7 +185,16 @@ for i = 1, #lc.opts.label do
 end
 -- custom processing
 if lc.opts.addon ~= nil then
-    fn, err = loadfile(lc.opts.addon, nil, lc.opts.addon_insecure and _ENV or env_limited)
+    local addon_file = lc.opts.addon
+    if lc.lfs.attributes(addon_file, 'mode') ~= 'file' then
+        if addon_file:sub(1,1) ~= '/' and
+           lc.lfs.attributes(lc.progdir..'/'..addon_file, 'mode') == 'file' then
+            addon_file = lc.progdir..'/'..addon_file
+        else
+            lc.die_unkn('Addon not found: '..addon_file)
+        end
+    end
+    fn, err = loadfile(addon_file, nil, lc.opts.addon_insecure and _ENV or env_limited)
     if fn == nil then lc.die(lc.UNKNOWN, 'Failed to load addon script: '..err) end
     success, err = pcall(fn)
     if not success then lc.die(lc.UNKNOWN, 'Failed to run addon script: '..err) end
