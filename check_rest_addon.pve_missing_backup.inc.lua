@@ -16,6 +16,9 @@ if arg[1] == 'init' then
     table.insert(lc.optsdef, { short = 'pxt', long = 'pve-exclude-tag',
         call = lc.setter_opt_array,
         help = 'Exclude guests by tag with lua pattern (array)' })
+    table.insert(lc.optsdef, { short = 'pxt', long = 'pve-exclude-pool',
+        call = lc.setter_opt_array,
+        help = 'Exclude guests by pool with lua pattern (array)' })
     return true
 end
 
@@ -42,6 +45,21 @@ function get_guests()
     return guests
 end
 
+function get_pools_members()
+    query(ctx.zcurl, { url = build_url('/api2/json/pools') }, 'json')
+    local pools_data = ctx.zcurl.response.body_decoded.data
+    local pools_matching_members = {}
+    for _,p in ipairs(pools_data) do
+        if not lu.mmatch(p.poolid, lc.opts.pve_exclude_pool) then goto continue end
+        query(ctx.zcurl, { url = build_url('/api2/json/pools/'..p.poolid) }, 'json')
+        for _,m in ipairs(ctx.zcurl.response.body_decoded.data.members) do
+            pools_matching_members[m.vmid] = m.name
+        end
+        ::continue::
+    end
+    return pools_matching_members
+end
+
 -- reindex vmid exclude list
 if lc.opts.pve_exclude_id then
     local x = {}
@@ -54,6 +72,7 @@ end
 
 local not_backed_up = get_not_backed_up()
 local guests
+local pools_matching_members
 
 for i = #not_backed_up, 1, -1 do
     local g = not_backed_up[i]
@@ -102,6 +121,16 @@ for i = #not_backed_up, 1, -1 do
             goto continue
         end
     end
+    -- exclude based on pool patterns
+    if lc.opts.pve_exclude_pool then
+        if not pools_matching_members then pools_matching_members = get_pools_members() end
+        if pools_matching_members[g.vmid] then
+            lc.pdebug('Skip '..g.name..' ('..g.vmid..'), exclude pool match')
+            not_backed_up[i] = nil
+            goto continue
+        end
+    end
+
     lc.pdebug('Keep '..g.name..' ('..g.vmid..')')
     ::continue::
 end
