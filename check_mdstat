@@ -128,6 +128,7 @@ echo "$REPLY" |awk \
     -v "INCLUDE=$INCLUDE" \
     -v "EXCLUDE=$EXCLUDE" \
 '
+$1 == "" { parse = 0; }
 parse == 0 && /^md[0-9]+ : / {
     md = $1;
     if ((INCLUDE != "" && !match(md, INCLUDE)) ||
@@ -141,9 +142,6 @@ parse == 1 && match($(NF-1), /^\[([0-9]+)\/([0-9]+)\]$/, cap) {
     devices_total[md] = cap[1];
     devices_in_use[md] = cap[2];
     parse = 2;
-}
-parse == 2 && $1 == "" {
-    parse = 0;
 }
 parse == 2 && match($0, /[ ]+([^ ]+)[ ]+=[ ]+([0-9.]+)% [^ ]+ finish=([^ ]+) speed=([^ ]+)/, cap) {
     action[md] = cap[1];
@@ -198,12 +196,15 @@ END {
         cur_status = 0;
         cur_output = "";
         if (array_state[md] != "active") {
-            cur_output = array_state[md] " ";
+            cur_output = array_state[md];
             cur_status = increase_prio(cur_status, 2);
         }
-        cur_output = cur_output devices_in_use[md] "/" devices_total[md] " disks";
-        if (devices_in_use[md] < devices_total[md])
-            cur_status = increase_prio(cur_status, 2);
+        if (devices_in_use[md] != "" && devices_total[md] != "") {
+            cur_output = (cur_output == "" ? "" : cur_output " ") \
+                devices_in_use[md] "/" devices_total[md] " disks";
+            if (devices_in_use[md] < devices_total[md])
+                cur_status = increase_prio(cur_status, 2);
+        }
         if (action[md] != "") {
             cur_status = increase_prio(cur_status, 1);
             cur_output = cur_output ", " action[md];
