@@ -207,7 +207,7 @@ END {
         }
         if (action[md] != "") {
             cur_status = increase_prio(cur_status, 1);
-            cur_output = cur_output ", " action[md];
+            cur_output = cur_output " " action[md];
             if (percent[md] != "")
                 cur_output = cur_output " " percent[md] "%";
             if (finish[md] != "")
@@ -217,8 +217,8 @@ END {
         }
 
         err_flag = (cur_status == 0) ? "" : "**";
-        output = output (output == "" ? "" : " - ") \
-            err_flag md err_flag " = " cur_output;
+        output = output (output == "" ? "" : ", ") \
+            err_flag md err_flag " " cur_output;
         perfdata = perfdata (perfdata == "" ? "" : " ") \
             "disks." md "=" devices_in_use[md] ";;;;" devices_total[md];
         status = increase_prio(status, cur_status);
