@@ -344,23 +344,26 @@ function LP.format_output(perfdata, opts)
             break
         end
 
-        local v = LP.numfmt(p.value, p.uom)
-        local max = LP.numfmt(p.max)
-
-        local m_name = p.label or p.name
-        local m_value = (v or 'nil')
-        local m_extra = ''
-        local m_error = ''
-
-        if (max and p.uom ~= '%') then
-            if p.value then m_value = LP.numfmt(p.value*100/max, '%')..' = '..m_value end
-            m_extra = "/" .. LP.numfmt(p.max, p.uom)
+        local pm = {
+            v = LP.numfmt(p.value, p.uom),
+            max = LP.numfmt(p.max),
+            name = p.label or p.name,
+            extra = '',
+            error = '',
+        }
+        pm.value = (pm.v or 'nil')
+        if (p.max and p.uom ~= '%') then
+            if p.value then pm.value = LP.numfmt(p.value*100/p.max, '%')..' = '..pm.value end
+            pm.extra = "/" .. LP.numfmt(p.max, p.uom)
         end
-        if p.extra then m_extra = m_extra..p.extra end
+        if p.extra then pm.extra = pm.extra..p.extra end
         if (p.state ~= LP.STATE_OK) then
-            m_error = '**'
+            pm.error = '**'
         end
-        local m = ('%s%s: %s%s%s'):format(m_error, m_name, m_value, m_extra, m_error)
+
+        local m
+        if p.foutput then m = p.foutput(p, pm)
+        else m = ('%s%s: %s%s%s'):format(pm.error, pm.name, pm.value, pm.extra, pm.error) end
 
         if (p.state == nil) then
             table.insert(msg[LP.STATE_UNKNOWN], m)
