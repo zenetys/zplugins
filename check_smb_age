@@ -1,0 +1,128 @@
+#!/usr/bin/lua
+
+-- Copyright Julien Thomas < julthomas @ free.fr >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Julien Thomas
+-- Licence: MIT
+
+local lc = require 'libcheck'
+local lp = require 'libperfdata'
+local lu = require 'libutil'
+require 'print_r'
+
+lc.checkname = 'AGE'
+lc.shortdescr = 'Check file age using smbclient'
+
+lc.optsdef = {
+    { short = 'H', long = 'host', help = 'SMB server hostname or IP address', required = true },
+    { short = 'P', long = 'port', help = 'SMB server port' },
+    { short = 's', long = 'share', help = 'SMB server share name', required = true },
+    { short = 'd', long = 'directory', help = "Pass 'cd DIR' to smbclient" },
+    { short = 'm', long = 'mask', help = "Pass 'mask MASK' to smbclient" },
+    { short = 'r', long = 'recurse', help = "Pass 'recurse' to smbclient", call = lc.setter_opt_boolean },
+    { short = 'u', long = 'username', help = 'Authentication username' },
+    { short = 'p', long = 'password', help = 'Authentication password' },
+    { short = 'A', long = 'authfile', help = 'Authentication file (smbclient format)' },
+    { short = 'w', long = 'warning', help = 'File age warning threshold' },
+    { short = 'c', long = 'critical', help = 'File age critical threshold' },
+    { short = 't', long = 'timeout', help = 'Timeout wrapper to smbclient (s)', call = lc.setter_opt_number },
+}
+
+lc.init_opts()
+
+-- build command
+function sh_quote(value) return "'"..value:gsub("'", "'\\''").."'" end
+function dquote(value) return '"'..value:gsub('"', '\\"')..'"' end
+local sh_code = 'LC_ALL=C timeout '..lc.opts.timeout..' smbclient '..sh_quote('//'..lc.opts.host..'/'..lc.opts.share)
+if lc.opts.port then sh_code = sh_code..' --port '..sh_quote(lc.opts.port) end
+if lc.opts.username then sh_code = sh_code..' --user '..sh_quote(lc.opts.username) end
+if lc.opts.password then sh_code = sh_code..' --password '..sh_quote(lc.opts.password) end
+if lc.opts.authfile then sh_code = sh_code..' --authentication-file '..sh_quote(lc.opts.authfile) end
+if lc.opts.directory then sh_code = sh_code..' --directory '..sh_quote(lc.opts.directory) end
+local smbc_cmd = 'ls'
+if lc.opts.recurse then smbc_cmd = 'recurse; '..smbc_cmd end
+if lc.opts.mask then smbc_cmd = 'mask '..dquote(lc.opts.mask)..'; '..smbc_cmd end
+sh_code = sh_code..' --command '..sh_quote(smbc_cmd)..' </dev/null'
+
+lc.debug('Shell code to execute: '..sh_code)
+
+-- run command, parse lines
+local pipe = io.popen(sh_code, 'r')
+local dir = (lc.opts.directory or ''):gsub('\\', '/')
+local month2i = { Jan=1,Feb=2,Mar=3,Apr=4,May=5,Jun=6,Jul=7,Aug=8,Sep=9,Oct=10,Nov=11,Dec=12 }
+local now = os.time()
+local nb_files = 0
+local too_old_files = {}
+
+lc.exit_code = lc.OK
+
+for line in pipe:lines() do
+    lc.debug('line> '..line)
+
+    local cap = { line:match('^%s*(.*[^%s])%s+(%u+)%s+(%d+)%s+((%u%l%l)%s(%u%l%l)%s+(%d%d?)%s(%d%d):(%d%d):(%d%d)%s(%d%d%d%d))$') }
+    if #cap > 0 then
+        if cap[2]:match('D') then goto continue end
+        local o = {
+            name = cap[1],
+            dir = dir,
+            file = (#dir > 0 and dir..'/' or '')..cap[1],
+            attr = cap[2],
+            size = cap[3],
+            date = cap[4],
+            epoch = os.time({ day=cap[7],month=month2i[cap[6]],year=cap[11],hour=cap[8],min=cap[9],sec=cap[10] }),
+        }
+        o.age = os.time() - o.epoch
+        nb_files = nb_files + 1
+
+        if lc.opts.critical and lp.check_range(o.age, lc.opts.critical) then
+            table.insert(too_old_files, o)
+            lc.exit_code = lc.worsen_status(lc.exit_code, lc.CRITICAL)
+        elseif lc.opts.warning and lp.check_range(o.age, lc.opts.warning) then
+            table.insert(too_old_files, o)
+            lc.exit_code = lc.worsen_status(lc.exit_code, lc.WARNING)
+        end
+
+        lc.dump(o)
+        goto continue
+    end
+
+    if line:sub(0, 1) == '\\' then
+        dir = line:sub(2):gsub('\\', '/')
+        goto continue
+    end
+
+    ::continue::
+end
+
+local rc = { pipe:close() }
+if rc[3] == 124 then
+    lc.die(lc.UNKNOWN, 'Failed to retrieve data, smbclient timeout')
+elseif rc[3] ~= 0 then
+    lc.die(lc.UNKNOWN, 'Failed to retrieve data, smbclient status '..rc[3])
+end
+
+local perfdata = {
+    { name = 'nb', value = nb_files, uom = '' },
+    { name = 'too_old', value = #too_old_files, uom = '' },
+}
+
+lc.exit_message = #too_old_files..'/'..nb_files..
+    ' file'..(#too_old_files > 1 and 's' or '')..' too old'
+
+if #too_old_files > 0 then
+    table.sort(too_old_files, function(a, b) return a.age > b.age end)
+    lc.exit_message = '**'..lc.exit_message..'**'
+    local nb_printed = 0
+    for _,v in ipairs(too_old_files) do
+        nb_printed = nb_printed + 1
+        if nb_printed > 16 then lc.exit_message = lc.exit_message..'...'; break end
+        lc.exit_message = lc.exit_message..' - '..v.file..' ('..lu.dhms(v.age)..')'
+    end
+end
+
+lc.exit_message = lc.exit_message..'|'..lp.format_perfdata(perfdata, true)
+
+for _,v in ipairs(too_old_files) do
+    lc.perr('Too old: '..v.file..' (age '..v.age..'s)')
+end
+
