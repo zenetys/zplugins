@@ -34,7 +34,10 @@ for _,e in ipairs(data.events) do
 end
 
 if not exp_date then lc.die_unkn('Could not find expiration date') end
-local exp_cap = { exp_date:match('^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)Z$') }
+local _, exp_cap = lu.mmatch(exp_date, {
+    '^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)Z$',
+    '^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)(%.%d+)Z$',
+})
 if #exp_cap == 0 then lc.die_unkn('Invalid expiration date format') end
 local exp_ts = tz.time({ year = tonumber(exp_cap[1]), month = tonumber(exp_cap[2]),
     day = tonumber(exp_cap[3]), hour = tonumber(exp_cap[4]), min = tonumber(exp_cap[5]),
