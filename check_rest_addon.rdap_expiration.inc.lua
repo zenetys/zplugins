@@ -8,7 +8,7 @@ if arg[1] == 'init' then
     lc.checkname = 'RDAP'
     lc.opts.follow = true
     lc.opts.perfdata_time = 0
-    table.insert(lc.optsdef, { short = 'd', long = 'domain',
+    table.insert(lc.optsdef, { short = 'i', long = 'domain',
         help = 'Domain to check', required = true })
     return true
 end
