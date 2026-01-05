@@ -6,7 +6,10 @@ if not data.data then
 end
 
 for key,backup in pairs(data.data) do
-    if backup.name == lc.opts.parameter.job and backup.result ~= lc.cjson.null then
+    if backup.name == lc.opts.parameter.job and
+       backup.result ~= lc.cjson.null and
+       backup.endTime ~= lc.cjson.null then
+
         result=backup.result.result
         message=backup.result.message
 
