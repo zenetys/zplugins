@@ -1,0 +1,95 @@
+#!/bin/bash
+
+PROGNAME=${0##*/}
+declare -A NAGIOS_TEXT_STATUS=(
+    [OK]=0
+    [WARNING]=1
+    [CRITICAL]=2
+    [UNKNOWN]=3
+)
+
+function nagios_exit_usage() {
+    echo "\
+Usage: $PROGNAME -H HOST -p PORT [OPTION...]
+Nagios plugin to check a TCP port with nmap -sS
+
+Available options:
+  -H, --host          Hostname or IP to check
+  -p, --port          TCP port number to check
+  -w, --warning       Response time (s) warning threshold
+  -c, --critical      Response time (s) critical threshold
+  -S, --sudo-user     Run nmap with sudo -u <user>
+  -h, --help          Display this help
+"
+    exit 3
+}
+
+# $1: status as text, eg: CRITICAL
+# $2: message
+function die() {
+    echo "$1: $2"
+    exit "${NAGIOS_TEXT_STATUS[$1]}"
+}
+
+# $1: expression to evaluate and print with awk
+# awk output gets returned in $REPLY
+# script dies if awk fails
+function awk_eval() {
+    REPLY=$(awk "BEGIN { print ($1) }") ||
+        die UNKNOWN "Eval failed: $1"
+}
+
+HOST=
+PORT=
+WARNING=
+CRITICAL=
+SUDO_USER=
+
+while (( $# > 0 )); do
+    case "$1" in
+        -H|--host) HOST=$2; shift ;;
+        -p|--port) PORT=$2; shift ;;
+        -w|--warning) WARNING=$2; shift ;;
+        -c|--critical) CRITICAL=$2; shift ;;
+        -S|--sudo-user) SUDO_USER=$2; shift ;;
+        -h|--help) nagios_exit_usage ;;
+        *) nagios_exit_usage ;;
+    esac
+    shift
+done
+
+[[ -z $HOST ]] && die UNKNOWN 'Invalid host'
+[[ -z $PORT || -n ${PORT//[0-9]} ]] && die UNKNOWN 'Invalid port'
+
+# nmap tries twice
+REPLY=($(
+    ${SUDO_USER:+sudo -u "$SUDO_USER"} nmap -Pn -sS -n -p "$PORT" --min-rtt-timeout 2s \
+        --max-rtt-timeout 2s --initial-rtt-timeout 2s --max-retries 1 "$HOST" |
+            sed -nre 's,^Host is up \(([0-9.]+)s latency\).*,\1,p' \
+                -e "s,^$PORT/tcp\s+([^\s]+)\s.*,\1,p"
+))
+
+[[ -z $REPLY || $? != 0 ]] && die UNKNOWN 'Nmap failed'
+[[ ${REPLY[1]} != open ]] && die CRITICAL "Connection failed on port $PORT"
+
+output="Port $PORT state open"
+state=OK
+# REPLY will be reused
+time=${REPLY[0]}
+
+if [[ -n $time && -z ${time//[0-9.]} ]]; then
+    output+=", response time ${time}s"
+    output+="|time=${time}s;$WARNING;$CRITICAL;;"
+
+    if [[ -n $CRITICAL ]]; then
+        awk_eval "${time} >= $CRITICAL"
+        [[ $REPLY == 1 ]] && state=CRITICAL
+    fi
+    if [[ $state == OK && -n $WARNING ]]; then
+        awk_eval "${time} >= $WARNING"
+        [[ $REPLY == 1 ]] && state=WARNING
+    fi
+fi
+
+echo "$state: $output"
+exit "${NAGIOS_TEXT_STATUS[$state]}"
