@@ -1,0 +1,124 @@
+#!/bin/bash
+
+set -f
+OIFS=$IFS
+PROGNAME=${0##*/}
+
+NAGIOS_STATUS_PRIO_TR=( 0 2 3 1 )
+NAGIOS_STATUS_TEXT=(
+    [0]='OK'
+    [1]='WARNING'
+    [2]='CRITICAL'
+    [3]='UNKNOWN'
+)
+
+function nagios_exit_usage() {
+    echo "\
+Usage: $PROGNAME [OPTION...] -H HOST -p PORT
+Nagios plugin to check certificate expiration with openssl s_client
+
+Options:
+  -H, --hostname        Hostname or IP address
+  -p, --port            SSL/TLS port number
+  -A, --starttls        OpenSSL s_client -starttls protocol, eg: smtp
+  -C, --cert            OpenSSL s_client -cert client certificate
+  -K, --key             OpenSSL s_client -key client key
+  -w, --warning         Days left before expiration, warning threshold
+  -c, --critical        Days left before expiration, critical threshold
+  -t, --timeout         TImeout in seconds
+  -h, --help            Display this help"
+    exit 3
+}
+
+# $1: Nagios status code
+# $2: Plugin output message
+# $@: Optional lines of long plugin output
+function nagios_die() {
+    echo "${NAGIOS_STATUS_TEXT[$1]}: $2"
+    (( $# > 2 )) && (IFS=$'\n'; echo "${*:3}")
+    exit "$1"
+}
+
+# $1: x509 subject, parts separated by slash
+function get_cn() {
+    REPLY=
+    local re='/CN=([^/]+)'
+    [[ $1 =~ $re ]] || return 1
+    REPLY=${BASH_REMATCH[1]}
+}
+
+# $1: current state
+# $2: want state
+function increase_prio() {
+    REPLY=$1
+    if (( NAGIOS_STATUS_PRIO_TR[$2] > NAGIOS_STATUS_PRIO_TR[$1] )); then
+        REPLY=$2
+    fi
+}
+
+HOST=
+PORT=443
+STARTTLS=
+CERT=
+KEY=
+WARNING=
+CRITICAL=
+TIMEOUT=10
+VERBOSE=
+
+while (( $# > 0 )); do
+    case "$1" in
+        -H|--hostname) HOST=$2; shift ;;
+        -p|--port) PORT=$2; shift ;;
+        -a|--starttls) STARTTLS=$2; shift ;;
+        -C|--cert) CERT=$2; shift ;;
+        -K|--key) KEY=$2; shift ;;
+        -w|--warning) WARNING=$2; shift ;;
+        -c|--critical) CRITICAL=$2; shift ;;
+        -t|--timeout) TIMEOUT=$2; shift ;;
+        -v|--verbose) VERBOSE=1 ;;
+        -h|--help) nagios_exit_usage 3 ;;
+    esac
+    shift
+done
+
+[[ -z $HOST ]] && nagios_exit_usage 3
+[[ -z $PORT || -n ${PORT//[0-9]} ]] && nagios_exit_usage 3
+[[ -n $WARNING && -n ${WARNING//[0-9]} ]] && nagios_exit_usage 3
+[[ -n $CRITICAL && -n ${CRITICAL//[0-9]} ]] && nagios_exit_usage 3
+[[ -n $TIMEOUT && -n ${TIMEOUT//[0-9]} ]] && nagios_exit_usage 3
+
+cmd=( ${TIMEOUT:+timeout "$TIMEOUT"} openssl s_client -connect "$HOST:$PORT"
+    ${STARTTLS:+-starttls "$STARTTLS"} ${CERT:+-cert "$CERT"} ${KEY:+-key "$KEY"} )
+[[ -n $VERBOSE ]] && { echo ">>> OpenSSL s_client command:"; echo "${cmd[*]@Q}"; echo "<<<"; }
+cert=$( "${cmd[@]}" </dev/null )
+[[ -n $VERBOSE ]] && { echo ">>> OpenSSL s_client stdout:"; echo "$cert"; echo "<<<"; }
+re_begin_cert='-----BEGIN( [^ ]+ )?CERTIFICATE-----'
+[[ $cert =~ $re_begin_cert ]] || nagios_die 3 'Failed to get target certificate'
+
+# force subject oneline output with slash separator as default format
+# varies in openssl versions
+IFS=$'\n'
+ossl_info=($(echo "$cert" |
+    openssl x509 -noout -nameopt oneline -enddate -subject |
+    sed -re '/^subject=/{s!((^[^=]+=) ?|, )([^=]+) = !\2/\3=!g}' \
+         -e 's,^[^=]+=\s*(.*),\1,'))
+IFS=$OIFS
+[[ -z $ossl_info ]] && nagios_die 3 'Failed to read certificate data'
+
+ts_now=$(date +%s)
+[[ -z $ts_now ]] && nagios_die 3 'Failed to get current timestamp'
+ts_enddate=$(date -d "${ossl_info[0]}" +%s)
+[[ -z $ts_enddate ]] && nagios_die 3 'Failed to convert certificate end date to timestamp'
+
+get_cn "${ossl_info[1]}"; cn=$REPLY
+days_left=$(( (ts_enddate - ts_now) / 3600 / 24 ))
+(( days_left < 0 )) && nagios_die 2 "Certificate ${cn:+'$cn'} expired $((-days_left))d ago"
+
+nagios_status=0
+if [[ -n $CRITICAL ]] && (( days_left <= CRITICAL )); then
+    increase_prio "$nagios_status" 2; nagios_status=$REPLY
+elif [[ -n $WARNING ]] && (( days_left <= WARNING )); then
+    increase_prio "$nagios_status" 1; nagios_status=$REPLY
+fi
+nagios_die "$nagios_status" "Certificate ${cn:+'$cn'} expire in ${days_left}d"
