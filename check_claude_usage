@@ -1,0 +1,114 @@
+#!/usr/bin/lua
+
+-- Copyright Zenetys < bdolez @ zenetys.com >
+-- Copyright Zenetys < jthomas @ zenetys.com >
+-- Author: Benoit Dolez
+-- Author: Julien Thomas
+-- Licence: MIT
+
+local lc = require 'libcheck'
+local lp = require 'libperfdata'
+local ZCurl = require 'libzcurl'
+
+lc.checkname = 'CLAUDE-USAGE'
+lc.shortdescr = 'Check Claude Max/Pro subscription usage via claude.ai'
+
+lc.optsdef = {
+    { short = 's', long = 'session-key', help = 'Claude session key: sk-ant-sid...' },
+    { short = 'S', long = 'session-file', help = 'JSON file with sessionKey and orgId' },
+    { short = 'o', long = 'org-id', help = 'Organization ID in UUID format' },
+    { short = 'w', long = 'warning', call = lc.setter_opt_number, help = 'Warning threshold' },
+    { short = 'c', long = 'critical', call = lc.setter_opt_number, help = 'Critical threshold' },
+    { short = 't', long = 'timeout', call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
+}
+
+lc.init_opts()
+
+if lc.opts.session_file then
+    local f, err = io.open(lc.opts.session_file, 'rb')
+    if not f then lc.die_unkn('Failed to open session file: '..err) end
+    local data = f:read('*a')
+    f:close()
+    data, err = lc.cjson.decode(data)
+    if not data then lc.die_unkn('Failed to JSON decode session file: '..err) end
+    if data.sessionKey then lc.opts.session_key = data.sessionKey end
+    if data.orgId then lc.opts.org_id = data.orgId end
+end
+
+if not lc.opts.session_key then lc.die_unkn('Invalid session key!')end
+if not lc.opts.timeout then lc.opts.timeout = 10 end
+
+local function fetch_org_id(zcurl)
+    zcurl:resetopts()
+    zcurl:setopts({ url = 'https://claude.ai/api/organizations' })
+    local success, err = zcurl:perform()
+    if not success then return nil, 'Failed to fetch organization info: '..err end
+    lc.dump(zcurl.response.body, 'Dump response data')
+    local decoded, err = lc.cjson.decode(zcurl.response.body)
+    if not decoded then return nil, 'Failed to JSON decode organization info: '..err end
+    -- return first organization
+    if not decoded[1] or not decoded[1].uuid then return nil, 'Organization not found' end
+    return decoded[1].uuid
+end
+
+local function fetch_usage(zcurl)
+    zcurl:resetopts()
+    zcurl:setopts({ url = 'https://claude.ai/api/organizations/'..lc.opts.org_id..'/usage' })
+    local success, err = zcurl:perform()
+    if not success then return nil, 'Failed to fetch usage data: '..err end
+    lc.dump(zcurl.response.body, 'Dump response data')
+    local decoded, err = lc.cjson.decode(zcurl.response.body)
+    if not decoded then return nil, 'Failed to JSON decode usage data: '..err end
+    return decoded
+end
+
+local perfdata = {}
+local zcurl = ZCurl.new({
+    ssl_verifypeer = 1,
+    ssl_verifyhost = 2,
+    timeout = lc.opts.timeout,
+    verbose = lc.opts.debug,
+    failonerror = true,
+    cookiefile = '', -- in memory cookies
+    writefunction = ZCurl._store_response('body'),
+    httpheader = {
+        'content-type: application/json',
+        'user-agent: Mozilla/5.0 ('..lc.progname..')',
+        'cookie: sessionKey='..lc.opts.session_key,
+    },
+})
+
+-- get org_id
+if not lc.opts.org_id then
+    lc.opts.org_id, err = fetch_org_id(zcurl)
+    if not lc.opts.org_id then lc.die_unkn(err) end
+end
+
+-- fetch usage
+local usage_data, err = fetch_usage(zcurl)
+if not usage_data then lc.die_unkn(err) end
+
+for k,v in pairs(usage_data) do
+    if not v or v == lc.cjson.null then goto continue end 
+    if not v.utilization or v.utilization == lc.cjson.null then goto continue end
+    if v.is_enabled == false then goto continue end
+
+    table.insert(perfdata, {
+        name = k,
+        value = v.utilization,
+        uom = '%',
+        warning = lc.opts.warning,
+        critical = lc.opts.critical,
+    })
+
+    ::continue::
+end
+
+table.sort(perfdata, function (a, b)
+    if not a.name then return false end
+    if not b.name then return true end
+    return a.name < b.name
+end)
+
+lc.exit_code = lp.compute_perfdata(perfdata)
+lc.exit_message = lp.format_output(perfdata)..'|'..lp.format_perfdata(perfdata)
