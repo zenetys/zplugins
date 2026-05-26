@@ -116,7 +116,7 @@ end
 function setter_opt_es(opt, value)
     local bk, value = value:match('^([^=]+)=(.*)')
     if not bk then return nil end
-    if value == '$' then return true end
+    if value == '$' or value == '' then return true end
     if not lc.opts._es[bk] then lc.opts._es[bk] = {} end
     local _es_k = opt.key:sub(4) -- sub(4) to skip es_
     if opt.type == 'number' then
