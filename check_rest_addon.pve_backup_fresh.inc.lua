@@ -28,9 +28,11 @@ end
 function get_guests(node)
     if not node then return nil end
     local output = {}
+    lc.pdebug("List qemu guests on node '"..node.."'")
     local url = '/api2/json/nodes/'..lc.opts.pve_node..'/qemu'
     query(ctx.zcurl, { url = build_url(url) }, 'json')
     for _,g in ipairs(ctx.zcurl.response.body_decoded.data) do output[g.vmid] = g.vmid end
+    lc.pdebug("List lxc guests on node '"..node.."'")
     local url = '/api2/json/nodes/'..lc.opts.pve_node..'/lxc'
     query(ctx.zcurl, { url = build_url(url) }, 'json')
     for _,g in ipairs(ctx.zcurl.response.body_decoded.data) do output[g.vmid] = g.vmid end
@@ -40,12 +42,14 @@ end
 function get_backup_guests()
     local output = {}
     -- starting from backup jobs, list backup'ed guests by storage
+    lc.pdebug('List cluster backup jobs')
     local url = '/api2/json/cluster/backup'
     query(ctx.zcurl, { url = build_url(url) }, 'json')
     local jobs = ctx.zcurl.response.body_decoded.data
     for _,b in ipairs(jobs) do
         if b.enabled == 0 then goto continue end
         if not output[b.storage] then output[b.storage] = {} end
+        lc.pdebug("List guests supported by backup job '"..b.id.."' on storage '"..b.storage.."'")
         url = '/api2/json/cluster/backup/'..b.id..'/included_volumes'
         query(ctx.zcurl, { url = build_url(url) }, 'json')
         if not ctx.zcurl.response.body_decoded.data.children then goto continue end
