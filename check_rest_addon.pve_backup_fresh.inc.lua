@@ -65,12 +65,22 @@ end
 function get_ds_last_content(datastore)
     local output = {} -- key: vmid, value = last entry according to ctime
     local url = '/api2/json/nodes/'..lc.opts.pve_node..'/storage/'..datastore..'/content/?content=backup'
-    query(ctx.zcurl, { url = build_url(url) }, 'json')
+    query(ctx.zcurl, { url = build_url(url), failonerror = false }, 'json')
+    if (ctx.zcurl.info.response_code ~= 200) then
+        lc.perr("WARNING! Failed to get content of datastore '"..datastore.."'")
+        lc.perr('WARNING! Server replied with status code '..tostring(ctx.zcurl.info.response_code))
+        lc.perr('WARNING! Raw server reply is as follows...')
+        lc.perr('>>>')
+        lc.perr(ctx.zcurl.response.body)
+        lc.perr('<<<')
+        goto done
+    end
     for _,e in ipairs(ctx.zcurl.response.body_decoded.data) do
         if not output[e.vmid] or e.ctime > output[e.vmid].ctime then
             output[e.vmid] = e
         end
     end
+    ::done::
     lc.dump(output, 'Datastore '..datastore..' last guest backups')
     return output
 end
