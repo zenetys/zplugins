@@ -9,6 +9,7 @@ NAGIOS_STATUS_TEXT=(
     [3]='UNKNOWN'
 )
 NAGIOS_STATUS_PRIO_TR=( 0 2 3 1 )
+SMART_STATE_DIR=/var/lib/smartmontools
 
 DEVICE=
 IS_REGEX=
@@ -68,7 +69,7 @@ in your snmpd.conf to access its output.
 }
 
 function sample_snmp_script() {
-    cat <<'EOF'
+    cat <<EOF
 #!/bin/bash
 
 # sudoers sample for Debian
@@ -81,19 +82,23 @@ function sample_snmp_script() {
 
 set -f
 export LC_ALL=C
-[[ $UID == 0 ]] || exec sudo -n "$0" "$@"
-OIFS=$IFS
-IFS=$'\n'
-disks=( $(smartctl --scan) )
-IFS=$OIFS
-(( ${#disks[@]} == 0 )) && exit 1
+[[ \$UID == 0 ]] || exec sudo -n "\$0" "\$@"
+OIFS=\$IFS
+IFS=\$'\n'
+disks=( \$(find $SMART_STATE_DIR -mindepth 1 -maxdepth 1 -type f -name 'attrlog.*.csv' -mtime -1 -printf '%P\n' |
+    sed -nre 's,^attrlog\.(.*)\.([^.]+)\.csv$,\2-\1,' -e 's,[_-],*,gp' |
+    xargs --no-run-if-empty -I{} find /dev/disk/by-id -name '{}' |
+    xargs --no-run-if-empty realpath |sort -u) )
+(( \${#disks[@]} == 0 )) && disks=( \$(smartctl --scan) )
+IFS=\$OIFS
+(( \${#disks[@]} == 0 )) && exit 1
 
-for i in "${disks[@]}"; do
-    opts=${i%%#*}
-    [[ $opts == *,* ]] && subdev=":${opts##*,}" || subdev=
-    status=$(smartctl -H $opts |
+for i in "\${disks[@]}"; do
+    opts=\${i%%#*}
+    [[ \$opts == *,* ]] && subdev=":\${opts##*,}" || subdev=
+    status=\$(smartctl -H \$opts |
         sed -nre 's,.*(Health Status|overall-health self-assessment test result): (.+),\2,p')
-    printf '%s\t%s\n' "${i%% *}${subdev}" "$status"
+    printf '%s\t%s\n' "\${i%% *}\${subdev}" "\$status"
 done
 EOF
     exit 3
@@ -162,7 +167,12 @@ function get_smart() {
 
     if [[ $IS_REGEX == 1 ]]; then
         local OIFS=$IFS IFS=$'\n'
-        disks+=( $("${smartctl[@]}" --scan |awk -v "DEVICE=$DEVICE" '$1 ~ DEVICE {print}') )
+        [[ -d $SMART_STATE_DIR/. ]] && disks+=( $(
+            find "$SMART_STATE_DIR" -mindepth 1 -maxdepth 1 -type f -name 'attrlog.*.csv' -mtime -1 -printf '%P\n' |
+            sed -nre 's,^attrlog\.(.*)\.([^.]+)\.csv$,\2-\1,' -e 's,[_-],*,gp' |
+            xargs --no-run-if-empty -I{} find /dev/disk/by-id -name '{}' |
+            xargs --no-run-if-empty realpath |sort -u |grep -E "$DEVICE") )
+        (( ${#disks[@]} == 0 )) && disks+=( $("${smartctl[@]}" --scan |awk -v "DEVICE=$DEVICE" '$1 ~ DEVICE {print}') )
         local IFS=$OIFS
         (( ${#disks[@]} == 0 )) && return 1
     else
