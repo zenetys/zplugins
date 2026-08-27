@@ -2,8 +2,10 @@
 
 -- Copyright Zenetys < bdolez @ zenetys.com >
 -- Copyright Zenetys < jthomas @ zenetys.com >
+-- Copyright Zenetys < slambert @ zenetys.com >
 -- Author: Benoit Dolez
 -- Author: Julien Thomas
+-- Author: Sylvain Lambert
 -- Licence: MIT
 
 local lc = require 'libcheck'
@@ -11,12 +13,18 @@ local lp = require 'libperfdata'
 local ZCurl = require 'libzcurl'
 
 lc.checkname = 'CLAUDE-USAGE'
-lc.shortdescr = 'Check Claude Max/Pro subscription usage via claude.ai'
+lc.shortdescr = 'Check Claude Max/Pro subscription usage via api.anthropic.com (OAuth)'
+
+local USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+local TOKEN_URL = 'https://platform.claude.com/v1/oauth/token'
+-- Refresh the access token this many seconds before its expiry
+local REFRESH_MARGIN = 300
 
 lc.optsdef = {
-    { short = 's', long = 'session-key', help = 'Claude session key: sk-ant-sid...' },
-    { short = 'S', long = 'session-file', help = 'JSON file with sessionKey and orgId' },
-    { short = 'o', long = 'org-id', help = 'Organization ID in UUID format' },
+    { short = 'S', long = 'session-file', help = 'JSON file with accessToken, refreshToken, expiresAt, clientId' },
+    { short = 'k', long = 'access-token', help = 'OAuth access token sk-ant-oat... (no refresh, for tests)' },
+    { short = 'i', long = 'client-id', help = 'OAuth client ID, required to refresh the access token' },
+    { short = 'a', long = 'user-agent', help = 'User-Agent header, required by the usage endpoint' },
     { short = 'w', long = 'warning', call = lc.setter_opt_number, help = 'Warning threshold' },
     { short = 'c', long = 'critical', call = lc.setter_opt_number, help = 'Critical threshold' },
     { short = 't', long = 'timeout', call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
@@ -24,36 +32,87 @@ lc.optsdef = {
 
 lc.init_opts()
 
-if lc.opts.session_file then
-    local f, err = io.open(lc.opts.session_file, 'rb')
+if not lc.opts.timeout then lc.opts.timeout = 10 end
+-- Without a claude-code User-Agent the endpoint answers HTTP 429
+if not lc.opts.user_agent then lc.opts.user_agent = 'claude-code/2.0.0' end
+
+local function load_session(path)
+    local f, err = io.open(path, 'rb')
     if not f then lc.die_unkn('Failed to open session file: '..err) end
     local data = f:read('*a')
     f:close()
     data, err = lc.cjson.decode(data)
     if not data then lc.die_unkn('Failed to JSON decode session file: '..err) end
-    if data.sessionKey then lc.opts.session_key = data.sessionKey end
-    if data.orgId then lc.opts.org_id = data.orgId end
+    -- accept a raw copy of ~/.claude/.credentials.json
+    if type(data.claudeAiOauth) == 'table' then data = data.claudeAiOauth end
+    if not data.accessToken or not data.refreshToken then
+        lc.die_unkn('Session file must contain accessToken and refreshToken')
+    end
+    -- command line takes precedence over the session file
+    if data.clientId and not lc.opts.client_id then lc.opts.client_id = data.clientId end
+    return data
 end
 
-if not lc.opts.session_key then lc.die_unkn('Invalid session key!')end
-if not lc.opts.timeout then lc.opts.timeout = 10 end
+-- In-place rewrite: the file must be writable by the nagios user, and
+-- persisting is mandatory because the refresh token may be rotated.
+local function save_session(path, creds)
+    local f, err = io.open(path, 'wb')
+    if not f then lc.die_unkn('Failed to open session file for writing: '..err) end
+    local success, err = f:write(lc.cjson.encode(creds))
+    f:close()
+    if not success then lc.die_unkn('Failed to save session file: '..err) end
+end
 
-local function fetch_org_id(zcurl)
-    zcurl:resetopts()
-    zcurl:setopts({ url = 'https://claude.ai/api/organizations' })
+local function make_zcurl(headers)
+    return ZCurl.new({
+        ssl_verifypeer = 1,
+        ssl_verifyhost = 2,
+        timeout = lc.opts.timeout,
+        verbose = lc.opts.debug,
+        cookiefile = '', -- in memory cookies
+        writefunction = ZCurl._store_response('body'),
+        httpheader = headers,
+    })
+end
+
+local function refresh_session(creds)
+    if not lc.opts.client_id then
+        return nil, 'Option --client-id is required to refresh the access token'
+    end
+    local zcurl = make_zcurl({
+        'content-type: application/json',
+        'user-agent: '..lc.opts.user_agent,
+    })
+    zcurl:setopts({
+        url = TOKEN_URL,
+        postfields = lc.cjson.encode({
+            grant_type = 'refresh_token',
+            refresh_token = creds.refreshToken,
+            client_id = lc.opts.client_id,
+        }),
+    })
     local success, err = zcurl:perform()
-    if not success then return nil, 'Failed to fetch organization info: '..err end
-    lc.dump(zcurl.response.body, 'Dump response data')
+    if not success then return nil, 'Failed to refresh OAuth token: '..err end
+    lc.dump(zcurl.response.body, 'Dump token response data')
     local decoded, err = lc.cjson.decode(zcurl.response.body)
-    if not decoded then return nil, 'Failed to JSON decode organization info: '..err end
-    -- return first organization
-    if not decoded[1] or not decoded[1].uuid then return nil, 'Organization not found' end
-    return decoded[1].uuid
+    if not decoded then return nil, 'Failed to JSON decode token response: '..err end
+    if not decoded.access_token then
+        local detail = decoded.error_description or decoded.error or 'no access_token in response'
+        return nil, 'OAuth token refresh rejected: '..tostring(detail)
+    end
+    creds.accessToken = decoded.access_token
+    if decoded.refresh_token then creds.refreshToken = decoded.refresh_token end
+    if decoded.expires_in then creds.expiresAt = (os.time() + decoded.expires_in) * 1000 end
+    return creds
 end
 
-local function fetch_usage(zcurl)
-    zcurl:resetopts()
-    zcurl:setopts({ url = 'https://claude.ai/api/organizations/'..lc.opts.org_id..'/usage' })
+local function fetch_usage(access_token)
+    local zcurl = make_zcurl({
+        'authorization: Bearer '..access_token,
+        'anthropic-beta: oauth-2025-04-20',
+        'user-agent: '..lc.opts.user_agent,
+    })
+    zcurl:setopts({ url = USAGE_URL })
     local success, err = zcurl:perform()
     if not success then return nil, 'Failed to fetch usage data: '..err end
     lc.dump(zcurl.response.body, 'Dump response data')
@@ -62,51 +121,67 @@ local function fetch_usage(zcurl)
     return decoded
 end
 
-local perfdata = {}
-local zcurl = ZCurl.new({
-    ssl_verifypeer = 1,
-    ssl_verifyhost = 2,
-    timeout = lc.opts.timeout,
-    verbose = lc.opts.debug,
-    failonerror = true,
-    cookiefile = '', -- in memory cookies
-    writefunction = ZCurl._store_response('body'),
-    httpheader = {
-        'content-type: application/json',
-        'user-agent: Mozilla/5.0 ('..lc.progname..')',
-        'cookie: sessionKey='..lc.opts.session_key,
-    },
-})
-
--- get org_id
-if not lc.opts.org_id then
-    lc.opts.org_id, err = fetch_org_id(zcurl)
-    if not lc.opts.org_id then lc.die_unkn(err) end
+local function is_api_error(data)
+    return type(data) == 'table' and data.type == 'error'
 end
 
--- fetch usage
-local usage_data, err = fetch_usage(zcurl)
-if not usage_data then lc.die_unkn(err) end
+local function api_error_message(data)
+    if type(data.error) == 'table' and data.error.message then
+        return 'API error: '..data.error.message
+    end
+    return 'API error'
+end
+
+local usage_data, err
+
+if lc.opts.access_token then
+    -- direct token mode, no refresh
+    usage_data, err = fetch_usage(lc.opts.access_token)
+    if not usage_data then lc.die_unkn(err) end
+    if is_api_error(usage_data) then lc.die_unkn(api_error_message(usage_data)) end
+elseif lc.opts.session_file then
+    local creds = load_session(lc.opts.session_file)
+    local refreshed = false
+
+    if not creds.expiresAt or creds.expiresAt / 1000 < os.time() + REFRESH_MARGIN then
+        creds, err = refresh_session(creds)
+        if not creds then lc.die_unkn(err) end
+        save_session(lc.opts.session_file, creds)
+        refreshed = true
+    end
+
+    usage_data, err = fetch_usage(creds.accessToken)
+    -- on auth error, retry once with a freshly refreshed token
+    if is_api_error(usage_data) and not refreshed then
+        creds, err = refresh_session(creds)
+        if not creds then lc.die_unkn(err) end
+        save_session(lc.opts.session_file, creds)
+        usage_data, err = fetch_usage(creds.accessToken)
+    end
+    if not usage_data then lc.die_unkn(err) end
+    if is_api_error(usage_data) then lc.die_unkn(api_error_message(usage_data)) end
+else
+    lc.die_unkn('Option --session-file or --access-token is required')
+end
+
+local perfdata = {}
 
 for k,v in pairs(usage_data) do
-    if not v or v == lc.cjson.null then goto continue end 
-    if not v.utilization or v.utilization == lc.cjson.null then goto continue end
-    if v.is_enabled == false then goto continue end
-
-    table.insert(perfdata, {
-        name = k,
-        value = v.utilization,
-        uom = '%',
-        warning = lc.opts.warning,
-        critical = lc.opts.critical,
-    })
-
-    ::continue::
+    if type(v) == 'table' and type(v.utilization) == 'number' and
+       v.is_enabled ~= false then
+        table.insert(perfdata, {
+            name = k,
+            value = v.utilization,
+            uom = '%',
+            warning = lc.opts.warning,
+            critical = lc.opts.critical,
+        })
+    end
 end
 
+-- highest utilization first, name as tie-breaker
 table.sort(perfdata, function (a, b)
-    if not a.name then return false end
-    if not b.name then return true end
+    if a.value ~= b.value then return a.value > b.value end
     return a.name < b.name
 end)
 
