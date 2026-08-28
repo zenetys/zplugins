@@ -28,6 +28,7 @@ lc.optsdef = {
     { short = 'w', long = 'warning', call = lc.setter_opt_number, help = 'Warning threshold' },
     { short = 'c', long = 'critical', call = lc.setter_opt_number, help = 'Critical threshold' },
     { short = 'R', long = 'force-refresh', arg = false, help = 'Refresh even if the token is still valid, to validate a new session' },
+    { short = 'E', long = 'expiry', call = lc.setter_opt_number, help = 'Warning under N days left on the refresh token, 0 disables (default 7)' },
     { short = 't', long = 'timeout', call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
 }
 
@@ -36,6 +37,8 @@ lc.init_opts()
 if not lc.opts.timeout then lc.opts.timeout = 10 end
 -- Without a claude-code User-Agent the endpoint answers HTTP 429
 if not lc.opts.user_agent then lc.opts.user_agent = 'claude-code/2.0.0' end
+-- Kept well under the ~29 days refresh token window, 0 disables hence == nil
+if lc.opts.expiry == nil then lc.opts.expiry = 7 end
 
 local function load_session(path)
     local f, err = io.open(path, 'rb')
@@ -125,6 +128,13 @@ local function refresh_session(creds)
     creds.accessToken = decoded.access_token
     if decoded.refresh_token then creds.refreshToken = decoded.refresh_token end
     if decoded.expires_in then creds.expiresAt = (os.time() + decoded.expires_in) * 1000 end
+    -- Drop the stored deadline if the response gives none, a stale one would
+    -- raise a false alert
+    if decoded.refresh_token_expires_in then
+        creds.refreshTokenExpiresAt = (os.time() + decoded.refresh_token_expires_in) * 1000
+    else
+        creds.refreshTokenExpiresAt = nil
+    end
     return creds
 end
 
@@ -143,6 +153,20 @@ local function fetch_usage(access_token)
     return decoded
 end
 
+-- Days left before a millisecond epoch deadline, nil if unknown
+local function expiry_days(at)
+    if type(at) ~= 'number' then return nil end
+    return (at / 1000 - os.time()) / 86400
+end
+
+-- Extra context on an API error when the access token is past its deadline
+local function expired_hint(creds)
+    local days = expiry_days(creds.expiresAt)
+    if not days or days > 0 then return '' end
+    return ', access token expired on '..
+        os.date('%Y-%m-%d %H:%M:%S', math.floor(creds.expiresAt / 1000))
+end
+
 local function is_api_error(data)
     return type(data) == 'table' and data.type == 'error'
 end
@@ -155,6 +179,7 @@ local function api_error_message(data)
 end
 
 local usage_data, err
+local refresh_expiry
 
 if lc.opts.access_token then
     -- direct token mode, no refresh
@@ -186,7 +211,13 @@ elseif lc.opts.session_file then
         usage_data, err = fetch_usage(creds.accessToken)
     end
     if not usage_data then lc.die_unkn(err) end
-    if is_api_error(usage_data) then lc.die_unkn(api_error_message(usage_data)) end
+    if is_api_error(usage_data) then
+        lc.die_unkn(api_error_message(usage_data)..expired_hint(creds))
+    end
+
+    -- The chain deadline is the one worth watching, the access token is
+    -- renewed from it every 8h
+    refresh_expiry = expiry_days(creds.refreshTokenExpiresAt)
 else
     lc.die_unkn('Option --session-file or --access-token is required')
 end
@@ -211,6 +242,18 @@ table.sort(perfdata, function (a, b)
     if a.value ~= b.value then return a.value > b.value end
     return a.name < b.name
 end)
+
+-- Chain lifetime last, days and not percent; nagios range N: alerts below N
+if refresh_expiry then
+    table.insert(perfdata, {
+        name = 'refresh_expiry',
+        value = math.floor(refresh_expiry),
+        -- explicit empty uom, a nil one makes numfmt return a float
+        uom = '',
+        extra = ' days',
+        warning = lc.opts.expiry > 0 and lc.opts.expiry..':' or nil,
+    })
+end
 
 lc.exit_code = lp.compute_perfdata(perfdata)
 lc.exit_message = lp.format_output(perfdata)..'|'..lp.format_perfdata(perfdata)
