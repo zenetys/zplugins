@@ -27,6 +27,7 @@ lc.optsdef = {
     { short = 'a', long = 'user-agent', help = 'User-Agent header, required by the usage endpoint' },
     { short = 'w', long = 'warning', call = lc.setter_opt_number, help = 'Warning threshold' },
     { short = 'c', long = 'critical', call = lc.setter_opt_number, help = 'Critical threshold' },
+    { short = 'R', long = 'force-refresh', arg = false, help = 'Refresh even if the token is still valid, to validate a new session' },
     { short = 't', long = 'timeout', call = lc.setter_opt_number, help = 'cURL timeout in seconds' },
 }
 
@@ -166,7 +167,10 @@ elseif lc.opts.session_file then
 
     assert_persistable(lc.opts.session_file)
 
-    if not creds.expiresAt or creds.expiresAt / 1000 < os.time() + REFRESH_MARGIN then
+    -- Without --force-refresh a new session is only validated 8h later, on
+    -- the first refresh
+    if lc.opts.force_refresh or not creds.expiresAt or
+       creds.expiresAt / 1000 < os.time() + REFRESH_MARGIN then
         creds, err = refresh_session(creds)
         if not creds then lc.die_unkn(err) end
         save_session(lc.opts.session_file, creds)
