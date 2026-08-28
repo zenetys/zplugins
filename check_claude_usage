@@ -53,14 +53,35 @@ local function load_session(path)
     return data
 end
 
--- In-place rewrite: the file must be writable by the nagios user, and
--- persisting is mandatory because the refresh token may be rotated.
+-- Rotation makes persisting mandatory. Write then rename, a truncated file
+-- would lose the chain; needs the directory writable, not just the file.
 local function save_session(path, creds)
-    local f, err = io.open(path, 'wb')
+    local tmp = path..'.tmp'
+    local f, err = io.open(tmp, 'wb')
     if not f then lc.die_unkn('Failed to open session file for writing: '..err) end
-    local success, err = f:write(lc.cjson.encode(creds))
+    local success, werr = f:write(lc.cjson.encode(creds))
     f:close()
-    if not success then lc.die_unkn('Failed to save session file: '..err) end
+    if not success then
+        os.remove(tmp)
+        lc.die_unkn('Failed to save session file: '..tostring(werr))
+    end
+    local renamed, rerr = os.rename(tmp, path)
+    if not renamed then
+        os.remove(tmp)
+        lc.die_unkn('Failed to replace session file: '..tostring(rerr))
+    end
+end
+
+-- Never refresh if the result cannot be saved, rotation would leave nothing
+-- to come back to. Same path as save_session, temporary file included.
+local function assert_persistable(path)
+    local tmp = path..'.tmp'
+    local f, err = io.open(tmp, 'wb')
+    if not f then
+        lc.die_unkn('Session file not writable, refusing to refresh: '..err)
+    end
+    f:close()
+    os.remove(tmp)
 end
 
 local function make_zcurl(headers)
@@ -142,6 +163,8 @@ if lc.opts.access_token then
 elseif lc.opts.session_file then
     local creds = load_session(lc.opts.session_file)
     local refreshed = false
+
+    assert_persistable(lc.opts.session_file)
 
     if not creds.expiresAt or creds.expiresAt / 1000 < os.time() + REFRESH_MARGIN then
         creds, err = refresh_session(creds)
