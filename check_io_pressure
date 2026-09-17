@@ -1,0 +1,176 @@
+#!/bin/bash
+
+PROGNAME=${0##*/}
+
+function nagios_exit_usage() {
+    echo "\
+Usage: $PROGNAME [OPTION...]
+Nagios plugin to check Linux IO pressure avg300 from /proc/pressure/io
+
+Common options:
+  -w, --warning       FLOAT   Warning threshold
+  -c, --critical      FLOAT   Critial threshold
+  -S, --sudo-user     USER    Run cat /proc/pressure/io with sudo -u USER
+  -h, --help                  Display this help
+
+SSH options:
+  -s, --ssh           CMD     Custom SSH command, see documentation below
+  -H, --host          HOST    SSH host
+  -p, --port          INT     SSH port
+  -u, --ssh-user      USER    SSH username
+  -i, --ssh-identity  FILE    SSH identity key file
+  -t, --timeout       INT     SSH connect timeout
+
+SNMP options:
+  -H, --host          HOST    SNMP host
+  -p, --port          INT     SNMP port
+  -t, --timeout       INT     Alias for SNMP option -t (timeout)
+  -O, --snmp-oid      OID     OID that return /proc/pressure/io data
+  -P, --snmp-options  ARGS    SNMP options, eg: -v 2c -c public, end with --
+
+When using option -s, --ssh, classic SSH options get ignored. It is then
+up to the caller to properly escape args and handle SSH options like
+identity, port, user, connect timeout.
+Usage example: check_pressure_io -s 'ssh -i key cmd@bastion host' ...
+
+When using option -O, --snmp-oid, /proc/pressure/io output is retrieved from
+the given OID.
+"
+    exit 3
+}
+
+function nagopt_var() {
+    [[ -z $2 || $2 == '$' ]] && return
+    declare -g "$1=$2"
+}
+
+function nagopt_arglist() {
+    local var=$1; shift
+    local value=()
+    while (( $# > 0 )) && [[ $1 != -- ]]; do
+        value+=( "$1" )
+        shift
+    done
+    declare -ga "$var=( \"\${value[@]}\" )"
+}
+
+function get_proc_pressure_io() {
+    if [[ -n $SNMP_OID && -n $HOST ]]; then
+        snmpget -OqevU "${SNMP_OPTIONS[@]}" ${TIMEOUT:+-t "$TIMEOUT"} \
+            "${HOST}${PORT:+:$PORT}" "$SNMP_OID" |
+                tr -d '"' |grep -Fv 'No Such Instance' || return 2
+    else
+        cmd=( ${SUDO_USER:+sudo -n -u "$SUDO_USER"} cat /proc/pressure/io )
+        printf -v sshargs "%q " "${cmd[@]}"
+        if [[ -n $SSH_CMD ]]; then
+            # custom ssh command: it is up to the caller to properly escape args
+            # and handle ssh options like identity, port, user, connect timeout
+            cmd=( $SSH_CMD -- "$sshargs" )
+        elif [[ -n $HOST ]]; then
+            cmd=(
+                ssh ${SSH_IDENTITY:+-i "$SSH_IDENTITY"} ${SSH_USER:+-l "$SSH_USER"}
+                ${PORT:+-p "$PORT"} -q -C -T -o StrictHostKeyChecking=no
+                -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey
+                ${TIMEOUT:+-o "ConnectTimeout=$TIMEOUT"} "$HOST" -- "$sshargs"
+            )
+        fi
+        "${cmd[@]}"
+    fi
+}
+
+HOST=
+PORT=
+SSH_USER=
+SSH_IDENTITY=
+TIMEOUT=
+SUDO_USER=
+SNMP_OID=
+SNMP_OPTIONS=()
+WARNING=
+CRITICAL=
+
+while (( $# > 0 )); do
+    case "$1" in
+        # ssh, snmp
+        -H|--host) nagopt_var HOST "$2"; shift ;;
+        -p|--port) nagopt_var PORT "$2"; shift ;;
+        -t|--timeout) nagopt_var TIMEOUT "$2"; shift ;;
+        # ssh
+        -s|--ssh) nagopt_var SSH_CMD "$2"; shift ;;
+        -u|--ssh-user) nagopt_var SSH_USER "$2"; shift ;;
+        -i|--ssh-identity) nagopt_var SSH_IDENTITY "$2"; shift ;;
+        # snmp
+        -O|--snmp-oid) nagopt_var SNMP_OID "$2"; shift ;;
+        -P|--snmp-options) nagopt_arglist SNMP_OPTIONS "${@:2}"; shift $((${#SNMP_OPTIONS[@]}+1)) ;;
+        # common
+        -w|--warning) nagopt_var WARNING "$2"; shift ;;
+        -c|--critical) nagopt_var CRITICAL "$2"; shift ;;
+        -S|--sudo-user) nagopt_var SUDO_USER "$2"; shift ;;
+        -h|--help) nagios_exit_usage ;;
+        *) nagios_exit_usage ;;
+    esac
+    shift
+done
+
+REPLY=$(get_proc_pressure_io)
+ret=$?
+
+if [[ ( -n $SSH_CMD || (-n $HOST && -z $SNMP_OID) ) ]] && (( ret == 255 )); then
+    echo 'UNKNOWN: SSH connect failed'
+    exit 3
+fi
+if (( ret != 0 )); then
+    echo 'UNKNOWN: Failed to get /proc/pressure/io data'
+    exit 3
+fi
+
+echo "$REPLY" |awk \
+    -v "warning=$WARNING" \
+    -v "critical=$CRITICAL" \
+'
+function increase_prio(current, target) {
+    return (NAGIOS_STATUS_PRIO_TR[target] > NAGIOS_STATUS_PRIO_TR[current]) \
+        ? target : current;
+}
+{
+    for (i=1; i<=NF; i++) {
+        if ($i ~ /^avg300=/) {
+            sub(/avg300=/, "", $i);
+            if (!seen_keys[$1]) {
+                all_keys[ikeys++] = $1;
+                seen_keys[$1] = 1;
+            }
+            data[$1] = $i;
+        }
+    }
+}
+END {
+    NAGIOS_STATUS_TEXT[0] = "OK";
+    NAGIOS_STATUS_TEXT[1] = "WARNING";
+    NAGIOS_STATUS_TEXT[2] = "CRITICAL";
+    NAGIOS_STATUS_TEXT[3] = "UNKNOWN";
+    NAGIOS_STATUS_PRIO_TR[0] = 0;
+    NAGIOS_STATUS_PRIO_TR[1] = 2;
+    NAGIOS_STATUS_PRIO_TR[2] = 3;
+    NAGIOS_STATUS_PRIO_TR[3] = 1;
+    output = ""
+    perfdata = ""
+    status = 0
+    for (i=0; i<ikeys; i++) {
+        output = output (output == "" ? "" : ", ") all_keys[i] ": " data[all_keys[i]];
+        perfdata = perfdata (perfdata == "" ? "" : " ") "\x27" all_keys[i] \
+            "\x27=" data[all_keys[i]] ";" warning ";" critical;
+        if (critical != "" && data[all_keys[i]] >= critical)
+            status = increase_prio(status, 2);
+        else if (warning != "" && data[all_keys[i]] >= warning)
+            status = increase_prio(status, 1);
+    }
+
+    if (output == "") {
+        status = increase_prio(status, 3);
+        output = "No IO pressure data!";
+    }
+    print NAGIOS_STATUS_TEXT[status] ": " output "|" perfdata;
+    exit(status);
+}
+'
