@@ -46,8 +46,11 @@ function exitUsage() {
         '  -T, --max-time SECONDS   Overall timeout in seconds\n' +
         '  -e, --set NAME VALUE     Make a key/value available in the scenario\n' +
         '  -o, --screenshot DIR     Take screenshot after scenario run\n' +
+        '  -d, --tmpdir DIR         Directory used for browser profiles\n' +
         '  -B, --browser-bin        Custom path to Chrome binary, eg: headless_shell\n' +
         '  -X, --no-sandbox         Run headless Chrome with --no-sandbox\n' +
+        '  -f, --no-headless        Do not run headless, useful for debugging\n' +
+        '  -k, --insecure           Ignore HTTPS certificates errors\n' +
         '  -v, --verbose            Increase verbosity\n' +
         '  -h, --help               Display this help\n' +
         '\n' +
@@ -98,18 +101,32 @@ function parseOptions() {
         else if ((process.argv[i] == '-o' || process.argv[i] == '--screenshot') &&
                  i < process.argv.length - 1)
             opts.screenshotDir = process.argv[++i];
+        else if ((process.argv[i] == '-d' || process.argv[i] == '--tmpdir') &&
+                 i < process.argv.length - 1)
+            process.env.PUPPETEER_TMP_DIR = process.argv[++i];
         else if ((process.argv[i] == '-B' || process.argv[i] == '--browser-bin') &&
                  i < process.argv.length - 1)
             opts.launchOpts.executablePath = process.argv[++i];
+        else if (process.argv[i] == '-k' || process.argv[i] == '--insecure')
+            opts.launchOpts.ignoreHTTPSErrors = true;
         else if (process.argv[i] == '-X' || process.argv[i] == '--no-sandbox')
             opts.launchOpts.args.push('--no-sandbox');
+        else if (process.argv[i] == '-f' || process.argv[i] == '--no-headless') {
+            opts.launchOpts.headless = false;
+            opts.launchOpts.args.push('--start-maximized');
+        }
         else if (process.argv[i] == '-v' || process.argv[i] == '--verbose')
             opts.verbose++;
         else if (process.argv[i].charAt(0) == '-') {
             for (let j = 1; j < process.argv[i].length; j++) {
                 let c = process.argv[i].charAt(j);
                 switch (c) {
+                    case 'k': opts.launchOpts.ignoreHTTPSErrors = true; break;
                     case 'X': opts.launchOpts.args.push('--no-sandbox'); break;
+                    case 'f':
+                        opts.launchOpts.headless = false;
+                        opts.launchOpts.args.push('--start-maximized');
+                        break;
                     case 'v': opts.verbose++; break;
                     default: exitUsage();
                 }
