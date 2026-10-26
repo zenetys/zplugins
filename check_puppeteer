@@ -182,6 +182,10 @@ ctx.step = function (description) {
         console.error('Step> at', Date.now()/1000, '-', description);
 };
 
+/* expose some other stuffs */
+ctx.nagios = nagios;
+ctx.die = die;
+
 process.on('exit', function () {
     ctx.state ??= nagios.state.unknown;
     ctx.output ??= 'No output!';
