@@ -190,6 +190,15 @@ process.on('exit', function () {
     process.exitCode = ctx.state;
     var stream = ctx.opts.scriptMode ? 'stderr' : 'stdout';
     process[stream].write(`PPTR ${nagios.stateName(ctx.state)} - ${ctx.output}\n`);
+
+    /* ensure browser gets killed */
+    if (ctx.browser) {
+        const p = ctx.browser.process();
+        if (p && p.pid) {
+            try { process.kill(p.pid); }
+            catch { /* ignore */ }
+        }
+    }
 });
 
 process.on('uncaughtException', (e) => {
