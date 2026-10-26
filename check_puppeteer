@@ -261,7 +261,7 @@ const scenario = require(ctx.opts.scenario);
             await ctx.page.screenshot({ path: screenshotFile });
         }
     }
-    catch {
+    catch (error) {
         console.error('Screenshot failed:', error);
     }
 
