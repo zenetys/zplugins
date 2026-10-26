@@ -66,8 +66,10 @@ function parseOptions() {
         timeout: 10,
         verbose: 0,
         vars: {},
-        browserBin: undefined, // default browser bundled with puppeteer
-        browserArgs: [],
+        launchOpts: {
+            args: [],
+            headless: 'new',
+        },
     };
     for (let i = 2; i < process.argv.length; i++) {
         if ((process.argv[i] == '-s' || process.argv[i] == '--scenario') &&
@@ -98,16 +100,16 @@ function parseOptions() {
             opts.screenshotDir = process.argv[++i];
         else if ((process.argv[i] == '-B' || process.argv[i] == '--browser-bin') &&
                  i < process.argv.length - 1)
-            opts.browserBin = process.argv[++i];
+            opts.launchOpts.executablePath = process.argv[++i];
         else if (process.argv[i] == '-X' || process.argv[i] == '--no-sandbox')
-            opts.browserArgs.push('--no-sandbox');
+            opts.launchOpts.args.push('--no-sandbox');
         else if (process.argv[i] == '-v' || process.argv[i] == '--verbose')
             opts.verbose++;
         else if (process.argv[i].charAt(0) == '-') {
             for (let j = 1; j < process.argv[i].length; j++) {
                 let c = process.argv[i].charAt(j);
                 switch (c) {
-                    case 'X': opts.browserArgs.push('--no-sandbox'); break;
+                    case 'X': opts.launchOpts.args.push('--no-sandbox'); break;
                     case 'v': opts.verbose++; break;
                     default: exitUsage();
                 }
@@ -183,11 +185,8 @@ const scenario = require(ctx.opts.scenario);
 
 (async function main() {
     /* open browser */
-    const launchOpts = { args: ctx.opts.browserArgs };
-    if (ctx.opts.browserBin)
-        launchOpts.executablePath = ctx.opts.browserBin;
     try {
-        ctx.browser = await puppeteer.launch(launchOpts);
+        ctx.browser = await puppeteer.launch(ctx.opts.launchOpts);
         ctx.page = await ctx.browser.newPage();
         ctx.page.setDefaultTimeout(ctx.opts.timeout * 1000);
         await ctx.page.setViewport({ width: 1700, height: 900 });
