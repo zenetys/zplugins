@@ -6,7 +6,9 @@ if not data.data then
 end
 
 for key,backup in pairs(data.data) do
-    if backup.name == lc.opts.parameter.job and
+    if (backup.name == lc.opts.parameter.job or
+        backup.name == lc.opts.parameter.job..' (Incremental)' or
+        backup.name == lc.opts.parameter.job..' (Synthetic Full)') and
        backup.result ~= lc.cjson.null and
        backup.endTime ~= lc.cjson.null then
 
