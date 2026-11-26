@@ -11,7 +11,7 @@ NAGIOS_STATUS_TEXT=(
 NAGIOS_STATUS_PRIO_TR=( 0 2 3 1 )
 SMART_STATE_DIR=/var/lib/smartmontools
 
-DEVICE=
+DEVICE=()
 IS_REGEX=
 ENV=
 HOST=
@@ -25,7 +25,7 @@ SNMP_OPTIONS=()
 
 function nagios_exit_usage() {
     echo "\
-Usage: $PROGNAME [OPTION...] [-d DEVICE]
+Usage: $PROGNAME [OPTION...] [-d DEVICE]...
 Nagios plugin to check for certificates expiration in an OpenSSL CA
 
 Common options:
@@ -127,6 +127,11 @@ function nagopt_var() {
     declare -g "$1=$2"
 }
 
+function nagopt_list() {
+    [[ -z $2 || $2 == '$' ]] && return
+    declare -ga "$1+=( \"\$2\" )"
+}
+
 function nagopt_arglist() {
     local var=$1; shift
     local value=()
@@ -176,7 +181,7 @@ function get_smart() {
         local IFS=$OIFS
         (( ${#disks[@]} == 0 )) && return 1
     else
-        disks+=( "$DEVICE" )
+        disks+=( "${DEVICE[@]}" )
     fi
 
     for i in "${disks[@]}"; do
@@ -214,7 +219,7 @@ function reply_get_smart() {
 while (( $# > 0 )); do
     case "$1" in
         # common
-        -d|--device) nagopt_var DEVICE "$2"; shift ;;
+        -d|--device) nagopt_list DEVICE "$2"; shift ;;
         -r|--regex) nagopt_var IS_REGEX "$2"; shift ;;
         -S|--sudo-user) nagopt_var SUDO_USER "$2"; shift ;;
         -E|--bash-env) nagopt_var ENV "$2"; shift ;;
@@ -245,6 +250,8 @@ fi
 if [[ -z $DEVICE ]]; then
     [[ $IS_REGEX == 0 ]] && nagios_die 3 'Device required'
     DEVICE=^
+elif [[ $IS_REGEX == 1 && ${#DEVICE[@]} != 1 ]]; then
+    nagios_die 3 'Single device value expected in regex mode'
 fi
 if [[ -n $TIMEOUT && -n ${TIMEOUT//[0-9]} ]]; then
     nagios_die 3 'Invalid SSH connect timeout, integer expected'
