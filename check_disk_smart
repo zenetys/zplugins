@@ -203,7 +203,7 @@ function reply_get_smart() {
         else
             {   echo ${ENV:+"export $ENV"}
                 echo 'export LC_ALL=C'
-                declare -p DEVICE IS_REGEX SUDO_USER
+                declare -p DEVICE IS_REGEX SUDO_USER SMART_STATE_DIR
                 declare -f get_smart
                 echo get_smart
             } |IFS=$OIFS get_cmd bash
