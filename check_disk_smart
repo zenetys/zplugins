@@ -177,7 +177,7 @@ function get_smart() {
             sed -nre 's,^attrlog\.(.*)\.([^.]+)\.csv$,\2-\1,' -e 's,[_-],*,gp' |
             xargs --no-run-if-empty -I{} find /dev/disk/by-id -name '{}' |
             xargs --no-run-if-empty realpath |sort -u |grep -E "$DEVICE") )
-        (( ${#disks[@]} == 0 )) && disks+=( $("${smartctl[@]}" --scan |awk -v "DEVICE=$DEVICE" '$1 ~ DEVICE {print}') )
+        (( ${#disks[@]} == 0 )) && disks+=( $("${smartctl[@]}" --scan |awk -v "DEVICE=$DEVICE" '$1 !~ /^#/ && $1 ~ DEVICE {print}') )
         local IFS=$OIFS
         (( ${#disks[@]} == 0 )) && return 1
     else
