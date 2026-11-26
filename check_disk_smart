@@ -187,7 +187,7 @@ function get_smart() {
     for i in "${disks[@]}"; do
         opts=${i%%#*}
         [[ $opts == *,* ]] && subdev=":${opts##*,}" || subdev=
-        status=$(smartctl -H $opts |
+        status=$(set -f; "${smartctl[@]}" -H $opts |
             sed -nre 's,.*(Health Status|overall-health self-assessment test result): (.+),\2,p')
         printf '%s\t%s\n' "${i%% *}${subdev}" "$status"
     done
